@@ -1,0 +1,405 @@
+:root {
+  --bg-primary: #0f1729;
+  --bg-secondary: #1a2340;
+  --bg-card: #1e2a4a;
+  --text-primary: #e8ecf4;
+  --text-secondary: #8b99b5;
+  --text-muted: #5a6a8a;
+  --accent-blue: #4a9eed;
+  --accent-green: #22c55e;
+  --accent-red: #ef4444;
+  --accent-amber: #f59e0b;
+  --accent-purple: #8b5cf6;
+  --border-color: rgba(74, 158, 237, 0.15);
+  --glow-blue: 0 0 20px rgba(74, 158, 237, 0.15);
+  --glow-green: 0 0 20px rgba(34, 197, 94, 0.2);
+  --glow-red: 0 0 20px rgba(239, 68, 68, 0.2);
+  --radius: 12px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ─── Layout ─────────────────────────────────────────── */
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 16px;
+  gap: 16px;
+}
+
+.header {
+  text-align: center;
+  padding: 12px 0;
+}
+
+.header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+}
+
+.header .subtitle {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.main-content {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ─── Drawing Canvas Panel ───────────────────────────── */
+
+.canvas-panel {
+  flex: 2;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--glow-blue);
+  overflow: hidden;
+  position: relative;
+  min-height: 400px;
+}
+
+.canvas-panel .excalidraw-container {
+  width: 100%;
+  height: 100%;
+}
+
+.canvas-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  gap: 12px;
+}
+
+.canvas-placeholder .icon {
+  font-size: 48px;
+  opacity: 0.5;
+}
+
+.canvas-placeholder p {
+  font-size: 14px;
+}
+
+.streaming-indicator {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(74, 158, 237, 0.2);
+  border: 1px solid rgba(74, 158, 237, 0.3);
+  color: var(--accent-blue);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.streaming-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-blue);
+  border-radius: 50%;
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ─── Game Panel ─────────────────────────────────────── */
+
+.game-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 280px;
+  max-width: 360px;
+}
+
+.info-card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+}
+
+.category-badge {
+  display: inline-block;
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--accent-purple);
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.word-blanks {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  text-align: center;
+  color: var(--text-primary);
+  font-family: 'Courier New', monospace;
+  padding: 16px 0;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.attempts-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.attempts-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.attempts-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.attempt-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  transition: all 0.3s ease;
+}
+
+.attempt-dot.used {
+  background: var(--accent-red);
+  opacity: 0.5;
+}
+
+/* ─── Guess Input ────────────────────────────────────── */
+
+.guess-section {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  padding: 16px;
+}
+
+.guess-form {
+  display: flex;
+  gap: 8px;
+}
+
+.guess-input {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.guess-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(74, 158, 237, 0.1);
+}
+
+.guess-input::placeholder {
+  color: var(--text-muted);
+}
+
+.guess-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent-blue), #3a7bd5);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(74, 158, 237, 0.3);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-success {
+  background: linear-gradient(135deg, var(--accent-green), #16a34a);
+  color: white;
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+}
+
+.btn-success:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--glow-green);
+}
+
+.feedback {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.feedback.wrong {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--accent-red);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.feedback.hint {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+/* ─── Win / Game Over Overlay ────────────────────────── */
+
+.overlay-card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  padding: 24px;
+  text-align: center;
+  animation: popIn 0.4s ease;
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.overlay-card.win {
+  border-color: rgba(34, 197, 94, 0.4);
+  box-shadow: var(--glow-green);
+}
+
+.overlay-card.lose {
+  border-color: rgba(239, 68, 68, 0.4);
+  box-shadow: var(--glow-red);
+}
+
+.overlay-emoji {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.overlay-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.overlay-word {
+  font-size: 18px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.overlay-word span {
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+/* ─── Waiting State ──────────────────────────────────── */
+
+.waiting-card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.waiting-card p {
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+/* ─── Responsive ─────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .main-content {
+    flex-direction: column;
+  }
+  .game-panel {
+    max-width: 100%;
+  }
+  .canvas-panel {
+    min-height: 300px;
+  }
+}
