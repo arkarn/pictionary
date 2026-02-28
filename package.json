@@ -13,14 +13,18 @@
         "@mistralai/mistralai": "^1.14.1",
         "@modelcontextprotocol/ext-apps": "^1.1.2",
         "@modelcontextprotocol/sdk": "^1.27.1",
+        "@types/ws": "^8.18.1",
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
+        "http-proxy-middleware": "^3.0.5",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
+        "ws": "^8.19.0",
         "zod": "^3.24.0"
     },
     "devDependencies": {
         "@types/cors": "^2.8.17",
+        "@types/http-proxy-middleware": "^0.19.3",
         "@types/react": "^18.3.18",
         "@types/react-dom": "^18.3.5",
         "@vitejs/plugin-react": "^4.3.4",
