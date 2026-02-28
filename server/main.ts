@@ -44,6 +44,10 @@ async function startStreamableHTTPServer(): Promise<void> {
     const httpServer = app.listen(port, () => {
         console.log(`🎨 Pictionary MCP server listening on http://localhost:${port}/mcp`);
     });
+    httpServer.on('error', (err) => {
+        console.error('Failed to start server:', err);
+        process.exit(1);
+    });
 
     const shutdown = () => {
         console.log("\nShutting down...");

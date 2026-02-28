@@ -1,5 +1,5 @@
 /**
- * Pictionary MCP Server — Gemini-powered drawing backend
+ * Pictionary MCP Server
  */
 import {
     registerAppResource,
@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Mistral } from "@mistralai/mistralai";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -19,7 +19,7 @@ const DIST_DIR = import.meta.filename.endsWith(".ts")
     ? path.join(import.meta.dirname, "..", "dist")
     : import.meta.dirname;
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY! });
 
 // ─── Game State ─────────────────────────────────────────────────────────
 
@@ -50,35 +50,47 @@ function getBlanks(state: GameState): string {
 
 let gameState = createGameState();
 
-// ─── Gemini Drawing Generation ──────────────────────────────────────────
+// ─── Mistral Drawing Generation ──────────────────────────────────────────
+
+/**
+ * Sanitize JSON from Mistral — fix common broken patterns like missing quotes.
+ * e.g. `"width:15` → `"width":15`
+ */
+function sanitizeJson(raw: string): string {
+    // Fix missing " before : in key-value pairs (e.g. "width:15 → "width":15)
+    return raw.replace(/"(\w+):(\d)/g, '"$1":$2');
+}
 
 async function generateDrawing(word: string): Promise<string> {
-    const model = genAI.getGenerativeModel({
-        model: "gemini-3-flash-preview",
-        systemInstruction: EXCALIDRAW_SYSTEM_PROMPT,
+    const response = await mistral.chat.complete({
+        model: "mistral-large-latest",
+        messages: [
+            { role: "system", content: EXCALIDRAW_SYSTEM_PROMPT },
+            {
+                role: "user",
+                content: `Draw "${word}" using Excalidraw elements. Return ONLY the JSON array, nothing else.`,
+            },
+        ],
+        temperature: 0.7,
+        maxTokens: 3000,
     });
 
-    const result = await model.generateContent(
-        `Draw "${word}" using Excalidraw elements. Create a recognizable, creative drawing using shapes, lines, and colors. Return ONLY the JSON array.`
-    );
-
-    const text = result.response.text();
+    const raw = response.choices?.[0]?.message?.content ?? "[]";
+    const text = typeof raw === "string" ? raw : raw.map((c: { text?: string }) => c.text ?? "").join("");
 
     // Extract JSON array from response (strip any markdown fences)
     const match = text.match(/\[[\s\S]*\]/);
     let jsonStr = match ? match[0] : "[]";
 
+    // Sanitize common Mistral JSON issues
+    jsonStr = sanitizeJson(jsonStr);
+
     // Validate it's parseable
     try {
-        const parsed = JSON.parse(jsonStr);
-        if (!Array.isArray(parsed)) {
-            console.error("[Pictionary] Gemini returned non-array JSON");
-            return "[]";
-        }
-        console.log(`[Pictionary] Gemini generated ${parsed.length} elements`);
+        JSON.parse(jsonStr);
     } catch (e) {
-        console.error("[Pictionary] Failed to parse Gemini JSON:", (e as Error).message);
-        console.error("[Pictionary] Raw (first 500):", jsonStr.slice(0, 500));
+        console.error("[Pictionary] Failed to parse sanitized JSON:", (e as Error).message);
+        console.error("[Pictionary] Raw JSON (first 500 chars):", jsonStr.slice(0, 500));
         return "[]";
     }
 
@@ -99,7 +111,7 @@ export function createServer(): McpServer {
         {
             title: "Draw Pictionary",
             description:
-                "Start a new Pictionary round. The server picks a secret word, generates an Excalidraw drawing with Gemini, and sends it to the game UI. The player then guesses the word.",
+                "Start a new Pictionary round. The server picks a secret word, generates an Excalidraw drawing with Mistral, and streams it to the game UI. The player then guesses the word.",
             inputSchema: {},
             _meta: { ui: { resourceUri } },
         },
@@ -113,7 +125,7 @@ export function createServer(): McpServer {
                 elements = await generateDrawing(word);
                 console.log(`[Pictionary] Drawing generated (${elements.length} chars)`);
             } catch (err) {
-                console.error("[Pictionary] Gemini error:", err);
+                console.error("[Pictionary] Mistral error:", err);
             }
 
             return {

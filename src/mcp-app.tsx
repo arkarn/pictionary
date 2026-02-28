@@ -14,7 +14,7 @@ import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { StrictMode, useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import { Excalidraw } from "@excalidraw/excalidraw";
+import { Excalidraw, convertToExcalidrawElements } from "@excalidraw/excalidraw";
 import "./global.css";
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -114,21 +114,37 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
     const [gameState, setGameState] = useState<GameState | null>(null);
     const [guess, setGuess] = useState("");
     const [feedback, setFeedback] = useState<{ type: "wrong" | "hint"; text: string } | null>(null);
+    // Store fully-converted Excalidraw elements (already processed by convertToExcalidrawElements)
     const [excalidrawElements, setExcalidrawElements] = useState<any[]>([]);
+    const [canvasKey, setCanvasKey] = useState(0);
     const [isStreaming, setIsStreaming] = useState(false);
+    const [isNewGameLoading, setIsNewGameLoading] = useState(false);
 
-    // Parse Excalidraw elements — from toolResult (server-generated) or toolInputs (LLM-generated streaming)
+    // Helper: parse → filter → convert → set elements and bump key to remount Excalidraw
+    const applyElements = (rawJson: any[]) => {
+        const valid = rawJson.filter(
+            (el: any) => el.type && !["cameraUpdate", "delete", "restoreCheckpoint"].includes(el.type)
+        );
+        if (valid.length > 0) {
+            try {
+                const full = convertToExcalidrawElements(valid);
+                console.log("[Pictionary UI] applyElements:", full.length, "elements");
+                setExcalidrawElements(full);
+                setCanvasKey(k => k + 1); // remount Excalidraw with fresh initialData
+            } catch (e) {
+                console.error("[Pictionary UI] convertToExcalidrawElements failed:", e);
+            }
+        }
+    };
+
+    // Parse elements from toolInputs (streaming path)
     useEffect(() => {
-        // Prefer elements from tool inputs (streaming/LLM path)
         const rawElements = toolInputsPartial?.elements || toolInputs?.elements;
         if (rawElements) {
             try {
                 const parsed = JSON.parse(rawElements);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    const validElements = parsed.filter(
-                        (el: any) => el.type && !["cameraUpdate", "delete", "restoreCheckpoint"].includes(el.type)
-                    );
-                    setExcalidrawElements(validElements);
+                    applyElements(parsed);
                 }
             } catch { /* partial JSON, ignore */ }
             setIsStreaming(!!toolInputsPartial);
@@ -154,20 +170,21 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
                     setFeedback(null);
                     setGuess("");
                 }
-                // Elements returned from server (Mistral-generated)
                 if (data.elements) {
                     try {
                         const parsed = JSON.parse(data.elements);
-                        if (Array.isArray(parsed) && parsed.length > 0) {
-                            const valid = parsed.filter(
-                                (el: any) => el.type && !["cameraUpdate", "delete", "restoreCheckpoint"].includes(el.type)
-                            );
-                            setExcalidrawElements(valid);
-                        }
-                    } catch { /* ignore */ }
+                        console.log("[Pictionary UI] toolResult elements:", parsed.length);
+                        if (Array.isArray(parsed)) applyElements(parsed);
+                    } catch (e) {
+                        console.error("[Pictionary UI] Failed to parse elements JSON:", e);
+                    }
+                } else {
+                    console.warn("[Pictionary UI] No elements in toolResult. Keys:", Object.keys(data));
                 }
             }
-        } catch { /* ignore */ }
+        } catch (e) {
+            console.error("[Pictionary UI] Failed to parse toolResult:", e);
+        }
     }, [toolResult]);
 
     // Fetch initial game state on mount
@@ -239,21 +256,41 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
     );
 
     const handleNewGame = useCallback(async () => {
+        if (isNewGameLoading) return;
+        setIsNewGameLoading(true);
         setExcalidrawElements([]);
         setFeedback(null);
         setGuess("");
         setGameState(null);
 
-        // Send a message to the host to trigger a new draw_pictionary call
         try {
-            await app.sendMessage({
-                role: "user",
-                content: [{ type: "text", text: "Start a new round of pictionary! Pick a word and draw it." }],
-            });
+            // Call draw_pictionary directly from the UI — no new host card is created
+            const result = await app.callServerTool({ name: "draw_pictionary", arguments: {} });
+            const text = result.content?.find((c: any) => c.type === "text");
+            if (text && "text" in text) {
+                const data = JSON.parse((text as any).text);
+                if (data.wordLength) {
+                    setGameState({
+                        wordLength: data.wordLength,
+                        category: data.category,
+                        blanks: data.blanks,
+                        attemptsLeft: data.attemptsLeft,
+                        won: false,
+                        gameOver: false,
+                    });
+                }
+                if (data.elements) {
+                    const parsed = JSON.parse(data.elements);
+                    console.log(`[Pictionary DEV] Drawing word in category "${data.category}", ${parsed.length} elements`);
+                    if (Array.isArray(parsed)) applyElements(parsed);
+                }
+            }
         } catch (e) {
-            console.error("Failed to request new game:", e);
+            console.error("[Pictionary UI] Failed to start new game:", e);
+        } finally {
+            setIsNewGameLoading(false);
         }
-    }, [app]);
+    }, [app, isNewGameLoading]);
 
     const isGameActive = gameState && !gameState.won && !gameState.gameOver;
     const MAX_ATTEMPTS = 6;
@@ -268,15 +305,16 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
             <div className="main-content">
                 {/* Left: Drawing Canvas */}
                 <div className="canvas-panel">
+                    {isStreaming && (
+                        <div className="streaming-indicator">
+                            <span className="streaming-dot" />
+                            Drawing...
+                        </div>
+                    )}
                     {excalidrawElements.length > 0 ? (
-                        <>
-                            {isStreaming && (
-                                <div className="streaming-indicator">
-                                    <span className="streaming-dot" />
-                                    Drawing...
-                                </div>
-                            )}
+                        <div style={{ width: "100%", height: "480px" }}>
                             <Excalidraw
+                                key={canvasKey}
                                 initialData={{
                                     elements: excalidrawElements,
                                     appState: {
@@ -293,7 +331,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
                                 gridModeEnabled={false}
                                 theme="dark"
                             />
-                        </>
+                        </div>
                     ) : (
                         <div className="canvas-placeholder">
                             <div className="icon">🎨</div>
@@ -307,6 +345,19 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
 
                 {/* Right: Game Panel */}
                 <div className="game-panel">
+                    {/* Panel header with New Game button always visible */}
+                    <div className="panel-header">
+                        <span className="panel-title">Guess the word</span>
+                        <button
+                            id="new-game-btn"
+                            className={`btn-icon ${isNewGameLoading ? "spinning" : ""}`}
+                            onClick={handleNewGame}
+                            disabled={isNewGameLoading}
+                            title="New Game"
+                        >
+                            {isNewGameLoading ? "⏳" : "🔄"}
+                        </button>
+                    </div>
                     {gameState ? (
                         <>
                             {/* Word Info */}
@@ -388,9 +439,9 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
                     ) : (
                         <div className="waiting-card">
                             <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
-                            <p>Waiting for a new round to start...</p>
-                            <p style={{ marginTop: 8, fontSize: 12, color: "var(--text-muted)" }}>
-                                The AI will pick a word and start drawing
+                            <p>Ready to play!</p>
+                            <p style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
+                                Hit 🔄 to start, or ask the model to draw
                             </p>
                         </div>
                     )}
