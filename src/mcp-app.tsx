@@ -151,16 +151,12 @@ function useAudioGuess({ wordLength, onWordMatch, enabled }: AudioGuessOpts) {
 
                     if (isTranscript) {
                         const text = (msg.text || msg.transcript || "").trim();
-                        if (text) setLiveTranscript(text);
-
-                        // Extract individual words and try to match
-                        const words = text.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/).filter(Boolean);
-                        for (const word of words) {
-                            if (FILLER_WORDS.has(word)) continue;
-                            if (word.length === wordLength && enabledRef.current) {
-                                console.log(`[AudioGuess] Submitting word: "${word}"`);
-                                // Do not mark as matched yet, let the backend decide if it's correct
-                                onWordMatch(word);
+                        if (text) {
+                            setLiveTranscript(text);
+                            // Submit the entire transcribed segment to the backend
+                            if (enabledRef.current) {
+                                console.log(`[AudioGuess] Submitting phrase: "${text}"`);
+                                onWordMatch(text);
                             }
                         }
                     }

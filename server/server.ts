@@ -156,7 +156,9 @@ export function createServer(): McpServer {
         },
         async (args): Promise<CallToolResult> => {
             const guess = (args.guess as string).toLowerCase().trim();
-            const correct = guess === gameState.currentWord.word.toLowerCase();
+            // A guess is correct if the exact word matches, OR if the STT phrase contains the secret word
+            const targetWord = gameState.currentWord.word.toLowerCase();
+            const correct = guess === targetWord || guess.includes(targetWord);
 
             if (correct) {
                 gameState.won = true;

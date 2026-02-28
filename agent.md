@@ -45,6 +45,19 @@ To the user, this looks exactly like real-time LLM streaming, but it bypasses th
    * We wanted to use `gemini-3.0-flash` or `gemini-3.1-pro-preview` for better spatial reasoning.
    * Ensure the model identifier you use actually exists on the public `v1beta` endpoint, otherwise the API silently fails and returns an empty drawing array `[]`.
 
+## Audio Guess (Speech-to-Text) Architecture
+We added a real-time voice guessing feature using ElevenLabs' STT WebSocket API.
+
+1. **WebSocket Proxy**: Browsers cannot securely use the ElevenLabs `xi-api-key` directly, and their `single-use` token API is deprecated/broken. Instead, the frontend connects to `ws://localhost:3001/api/stt` (a Node.js `ws` server running alongside the MCP Express app). The backend proxy attaches the API key and seamlessly forwards packets to/from ElevenLabs.
+2. **Buffer Translation**: The `ws` library yields frontend text frames as `Buffer` objects. The proxy *must* use `.toString()` before forwarding them, or ElevenLabs will instantly terminate the connection with code `1005` (unsupported binary frame).
+3. **Phrase Verification**: We don't just guess random spoken words based on length. The frontend (`useAudioGuess`) submits the *entire* transcribed phrase (partial or committed) to the `check_guess` endpoint. The backend uses `guess.includes(secret_word)` for flexible, natural speech detection.
+4. **Timers**: The microphone has a hard 3-minute (180s) auto-shutoff timer.
+
+### Sandbox Permission Quirks
+* The `basic-host` loads the UI inside a sandboxed iframe.
+* To allow microphone access, we added `permissions: { microphone: {} }` to the UI resource metadata in `server.ts`.
+* The iframe blocked WebSocket connections to `localhost:3001` via CSP. We had to explicitly define `connectDomains: ["ws://localhost:3001"]` inside the same UI metadata.
+
 ## Making Changes
 
 * **Changing the UI**: If you edit `src/mcp-app.tsx` or `src/global.css`, you MUST run `npm run build` to regenerate the `dist/mcp-app.html` bundle.
@@ -52,5 +65,5 @@ To the user, this looks exactly like real-time LLM streaming, but it bypasses th
 * **Testing in basic-host**: Start the `basic-host` (on port 8080), select `pictionary-server`, and call the `draw_pictionary` tool leaving the Input JSON empty.
 
 ## Tech Stack
-* Backend: TypeScript, `@modelcontextprotocol/sdk`, `@google/generative-ai`
+* Backend: TypeScript, `@modelcontextprotocol/sdk`, `@google/generative-ai`, `ws`
 * Frontend: React, Vite (`vite-plugin-singlefile`), `@excalidraw/excalidraw`
