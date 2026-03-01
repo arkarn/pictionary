@@ -45,6 +45,8 @@ We use a scheduled pipeline to improve drawing quality and reduce latency:
 
 ![Dataset Visualization](demo/dataset.png)
 
+![Negative Feedback Samples](demo/feedback.png)
+
 ![Finetuning Metrics](demo/finetuning_charts.png)
 
 - **Finetuning Notebook**: [Google Colab](https://colab.research.google.com/drive/1LMFJDHu9ZS9_uyKLn097_n8Gw0ASmL_c?usp=sharing)
