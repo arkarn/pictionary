@@ -299,7 +299,13 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
     const [canvasKey, setCanvasKey] = useState(0);
     const [isStreaming, setIsStreaming] = useState(false);
     const [isNewGameLoading, setIsNewGameLoading] = useState(false);
-    const [audioMode, setAudioMode] = useState(false);
+    const [audioMode, setAudioMode] = useState(true);
+    const [pointsWon, setPointsWon] = useState(0);
+    const [pointsLost, setPointsLost] = useState(0);
+    const [selectedModel, setSelectedModel] = useState("mistral-large-2512");
+    const [rating, setRating] = useState<"up" | "down" | null>(null);
+    const hasMountedRef = useRef(false);
+    const timerRef = useRef<number | null>(null);
 
     const animationRef = useRef<number | null>(null);
     const excalidrawApiRef = useRef<any>(null);
@@ -408,6 +414,9 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                         : prev
                 );
 
+                if (data.won) setPointsWon(p => p + 1);
+                if (data.gameOver && !data.won) setPointsLost(p => p + 1);
+
                 if (data.correct) {
                     setFeedback({ type: "success", text: `🎉 "${word.trim()}" is correct! Great job!` });
                     return true;
@@ -440,13 +449,9 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
     // Audio guess: when a matching word is spoken, auto-submit it
     const handleAudioWordMatch = useCallback(async (word: string) => {
         setGuess(word);
-        const wasCorrect = await submitGuess(word);
-        if (wasCorrect) {
-            setAudioMode(false); // stop mic on correct answer
-        } else {
-            // Give visual feedback but let the microphone keep running
-            setGuess("");
-        }
+        await submitGuess(word);
+        // Do not toggle setAudioMode(false) here, keep it listening permanently for next game
+        setGuess("");
     }, [submitGuess]);
 
     const audioGuess = useAudioGuess({
@@ -482,11 +487,12 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
         setCanvasKey(k => k + 1); // Force clear board immediately
         setFeedback(null);
         setGuess("");
+        setRating(null); // Reset rating for the new game
         setGameState(null);
         setIsStreaming(true);
 
         try {
-            const wsUrl = `ws://localhost:3001/api/draw-stream`;
+            const wsUrl = `ws://localhost:3001/api/draw-stream?model=${selectedModel}`;
             const ws = new WebSocket(wsUrl);
             drawWsRef.current = ws;
             const startTime = performance.now();
@@ -508,6 +514,11 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                             gameOver: false,
                         });
                         setIsNewGameLoading(false); // Game is ready to play
+
+                        // Automatically start audio guess if in audio mode
+                        if (audioMode && !audioGuess.isListening) {
+                            audioGuess.start();
+                        }
                     } else if (msg.type === "chunk" && msg.text) {
                         console.log(`[UI Stream] +${elapsed}ms - Received chunk (${msg.text.length} chars)`);
                         jsonBufferRef.current += msg.text;
@@ -544,9 +555,67 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
             setIsNewGameLoading(false);
             setIsStreaming(false);
         }
-    }, [isNewGameLoading, applyElementsInstant, healJsonArray, audioGuess]);
+    }, [isNewGameLoading, applyElementsInstant, healJsonArray, audioGuess, audioMode]);
+
+    // Auto-start new game exactly once on mount
+    useEffect(() => {
+        if (!hasMountedRef.current) {
+            hasMountedRef.current = true;
+            if (!gameState && !isStreaming && !isNewGameLoading) {
+                handleNewGame();
+            }
+        }
+    }, [handleNewGame, gameState, isStreaming, isNewGameLoading]);
 
     const isGameActive = gameState && !gameState.won && !gameState.gameOver;
+
+    // 15-second timer per attempt
+    useEffect(() => {
+        if (!isGameActive) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            return;
+        }
+
+        if (timerRef.current) clearInterval(timerRef.current);
+
+        timerRef.current = window.setInterval(async () => {
+            try {
+                const result = await app.callServerTool({
+                    name: "decrement_attempt",
+                    arguments: {},
+                });
+                const text = result.content?.find((c: any) => c.type === "text");
+                if (text && "text" in text) {
+                    const data: GuessResult = JSON.parse(text.text);
+                    setGameState((prev) =>
+                        prev
+                            ? {
+                                ...prev,
+                                blanks: data.blanks,
+                                attemptsLeft: data.attemptsLeft,
+                                won: data.won,
+                                gameOver: data.gameOver,
+                            }
+                            : prev
+                    );
+
+                    if (data.gameOver && !data.won) setPointsLost(p => p + 1);
+
+                    setFeedback({
+                        type: "hint",
+                        text: "Time's up for that attempt! 15 seconds passed.",
+                    });
+                }
+            } catch (e) {
+                console.error("Timeout attempt error:", e);
+            }
+        }, 15000);
+
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+        };
+    }, [isGameActive, app, gameState?.attemptsLeft]);
+
     const MAX_ATTEMPTS = 6;
 
     return (
@@ -568,7 +637,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                                 initialData={{
                                     elements: excalidrawElements,
                                     appState: {
-                                        viewBackgroundColor: "#f3f4f6",
+                                        viewBackgroundColor: "#ffffff",
                                         theme: "light",
                                         viewModeEnabled: true,
                                         zenModeEnabled: true,
@@ -595,15 +664,19 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                         </div>
                     ) : (
                         <div className="canvas-placeholder">
-                            <div className="icon">🎨</div>
+                            <div className="icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" /></svg>
+                            </div>
                             <p>Waiting for the drawing...</p>
                             <button
                                 className="btn-primary"
                                 onClick={handleNewGame}
                                 disabled={isNewGameLoading}
-                                style={{ marginTop: '1rem' }}
+                                style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}
                             >
-                                {isNewGameLoading ? "⏳ Starting..." : "START NEW ROUND"}
+                                {isNewGameLoading ? (
+                                    <><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spinning"><path d="M5 22h14" /><path d="M5 2h14" /><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22" /><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" /></svg> Starting...</>
+                                ) : "START NEW ROUND"}
                             </button>
                         </div>
                     )}
@@ -611,18 +684,55 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
 
                 {/* Right: Game Panel */}
                 <div className="game-panel">
-                    {/* Panel header with New Game button always visible */}
-                    <div className="panel-header">
-                        <span className="panel-title">Guess the word</span>
-                        <button
-                            id="new-game-btn"
-                            className={`btn-icon ${isNewGameLoading ? "spinning" : ""}`}
-                            onClick={handleNewGame}
-                            disabled={isNewGameLoading}
-                            title="New Game"
-                        >
-                            {isNewGameLoading ? "⏳" : "🔄"}
-                        </button>
+                    {/* Panel header with PICTIONARY title, Mic and New Game buttons always visible */}
+                    <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span className="panel-title" style={{ fontSize: '20px', letterSpacing: '2px', color: 'var(--accent-purple)' }}>PICTIONARY</span>
+                            <div style={{ display: 'flex', gap: '12px', fontSize: '14px', fontWeight: 'bold' }}>
+                                <span style={{ color: 'var(--accent-green)' }}>Won: {pointsWon}</span>
+                                <span style={{ color: 'var(--accent-red)' }}>Lost: {pointsLost}</span>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                            <span className="panel-title" style={{ fontSize: '12px' }}>Guess the word</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <select
+                                    value={selectedModel}
+                                    onChange={(e) => setSelectedModel(e.target.value)}
+                                    disabled={isNewGameLoading || !!(gameState && !gameState.won && !gameState.gameOver)}
+                                    className="model-select"
+                                    style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', fontSize: '13px' }}
+                                >
+                                    <option value="gemini">Gemini</option>
+                                    <option value="devstral-2512">Devstral</option>
+                                    <option value="mistral-large-2512">Mistral Large</option>
+                                    <option value="ministral-8b-2410">Ministral 8B</option>
+                                    <option value="ministral-8b-2512">Ministral 8B (finetuned)</option>
+                                    <option value="ministral-3b-2512">Ministral 3B</option>
+                                </select>
+                                <button
+                                    className={`mic-btn header-mic ${audioGuess.isListening ? "active" : ""}`}
+                                    onClick={toggleAudio}
+                                    disabled={!gameState || gameState.won || gameState.gameOver}
+                                    title={audioGuess.isListening ? "Stop listening" : "Voice guess"}
+                                >
+                                    {audioGuess.isListening ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="12" height="12" x="6" y="6" rx="2" /></svg>
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
+                                    )}
+                                </button>
+                                <button
+                                    id="new-game-btn"
+                                    className={`btn-icon ${isNewGameLoading ? "spinning" : ""}`}
+                                    onClick={handleNewGame}
+                                    disabled={isNewGameLoading}
+                                    title="Restart Game"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     {gameState ? (
                         <>
@@ -646,30 +756,45 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                             </div>
 
                             {/* Win / Game Over */}
-                            {gameState.won ? (
-                                <div className="overlay-card win">
-                                    <div className="overlay-emoji">🎉</div>
-                                    <div className="overlay-title" style={{ color: "var(--accent-green)" }}>
-                                        You got it!
+                            {gameState.won || gameState.gameOver ? (
+                                <div className={`overlay-card ${gameState.won ? "win" : "lose"}`}>
+                                    <div className="overlay-emoji">
+                                        {gameState.won ? (
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" /><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" /></svg>
+                                        ) : (
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--accent-red)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M16 16s-1.5-2-4-2-4 2-4 2" /><line x1="9" x2="9.01" y1="9" y2="9" /><line x1="15" x2="15.01" y1="9" y2="9" /></svg>
+                                        )}
+                                    </div>
+                                    <div className="overlay-title" style={{ color: gameState.won ? "var(--accent-green)" : "var(--accent-red)" }}>
+                                        {gameState.won ? "You got it!" : "Game Over"}
                                     </div>
                                     <div className="overlay-word">
                                         The word was <span>{gameState.blanks.replace(/ /g, "")}</span>
                                     </div>
-                                    <button className="btn btn-success" onClick={handleNewGame}>
-                                        Play Again
-                                    </button>
-                                </div>
-                            ) : gameState.gameOver ? (
-                                <div className="overlay-card lose">
-                                    <div className="overlay-emoji">😔</div>
-                                    <div className="overlay-title" style={{ color: "var(--accent-red)" }}>
-                                        Game Over
+
+                                    {/* Rating UI */}
+                                    <div className="rating-section" style={{ marginTop: '16px', marginBottom: '16px', textAlign: 'center' }}>
+                                        <p style={{ fontSize: '14px', marginBottom: '8px', color: 'var(--text-secondary)' }}>How was the drawing?</p>
+                                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                                            <button
+                                                className={`btn-icon ${rating === "up" ? "active" : ""}`}
+                                                style={{ border: rating === "up" ? "2px solid var(--accent-green)" : "1px solid var(--border-color)", padding: "8px" }}
+                                                onClick={() => setRating("up")}
+                                            >
+                                                👍
+                                            </button>
+                                            <button
+                                                className={`btn-icon ${rating === "down" ? "active" : ""}`}
+                                                style={{ border: rating === "down" ? "2px solid var(--accent-red)" : "1px solid var(--border-color)", padding: "8px" }}
+                                                onClick={() => setRating("down")}
+                                            >
+                                                👎
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div className="overlay-word">
-                                        The word was <span>{gameState.blanks.replace(/ /g, "")}</span>
-                                    </div>
+
                                     <button className="btn btn-success" onClick={handleNewGame}>
-                                        Try Again
+                                        {gameState.won ? "Play Again" : "Try Again"}
                                     </button>
                                 </div>
                             ) : (
@@ -694,14 +819,6 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                                             >
                                                 Guess
                                             </button>
-                                            <button
-                                                className={`mic-btn ${audioGuess.isListening ? "active" : ""}`}
-                                                onClick={toggleAudio}
-                                                disabled={!isGameActive}
-                                                title={audioGuess.isListening ? "Stop listening" : "Voice guess"}
-                                            >
-                                                {audioGuess.isListening ? "🔴" : "🎙️"}
-                                            </button>
                                         </div>
                                         {audioGuess.isListening && audioGuess.liveTranscript && (
                                             <div className="live-transcript">
@@ -721,10 +838,12 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                         </>
                     ) : (
                         <div className="waiting-card">
-                            <div style={{ fontSize: 32, marginBottom: 8 }}>🎯</div>
+                            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></svg>
+                            </div>
                             <p>Ready to play!</p>
-                            <p style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
-                                Hit 🔄 to start, or ask the model to draw
+                            <p style={{ marginTop: 4, fontSize: 13, color: "var(--text-muted)" }}>
+                                Hit <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 2px' }}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg> to start, or ask the model to draw
                             </p>
                         </div>
                     )}

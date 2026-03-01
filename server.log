@@ -1,0 +1,8 @@
+
+> pictionary-mcp-app@1.0.0 serve
+> tsx server/main.ts
+
+Warning: Server is binding to 0.0.0.0 without DNS rebinding protection. Consider using the allowedHosts option to restrict allowed hosts, or use authentication to protect your server.
+🎨 Pictionary MCP server listening on http://localhost:3001/mcp
+🎙️  STT Proxy ready at ws://localhost:3001/api/stt
+🖌️  Draw Stream ready at ws://localhost:3001/api/draw-stream

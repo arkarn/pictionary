@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap');
+
 :root {
   --bg-primary: #f3f4f6;
   --bg-secondary: #e5e7eb;
@@ -14,7 +16,7 @@
   --glow-blue: 0 4px 12px rgba(0, 0, 0, 0.05);
   --glow-green: 0 4px 12px rgba(34, 197, 94, 0.15);
   --glow-red: 0 4px 12px rgba(239, 68, 68, 0.15);
-  --radius: 12px;
+  --radius: 16px;
 }
 
 * {
@@ -24,7 +26,7 @@
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
@@ -51,6 +53,7 @@ body {
 }
 
 .header h1 {
+  font-family: 'Fredoka', cursive;
   font-size: 28px;
   font-weight: 700;
   background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
@@ -199,7 +202,8 @@ body {
 }
 
 .panel-title {
-  font-size: 13px;
+  font-family: 'Fredoka', cursive;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -210,8 +214,8 @@ body {
   background: rgba(74, 158, 237, 0.1);
   border: 1px solid rgba(74, 158, 237, 0.2);
   color: var(--accent-blue);
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   border-radius: 8px;
   font-size: 16px;
   cursor: pointer;
@@ -223,7 +227,12 @@ body {
 
 .btn-icon:hover:not(:disabled) {
   background: rgba(74, 158, 237, 0.2);
-  transform: scale(1.1);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(74, 158, 237, 0.2);
+}
+
+.btn-icon:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .btn-icon:disabled {
@@ -250,6 +259,7 @@ body {
   border-radius: var(--radius);
   border: 1px solid var(--border-color);
   padding: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
 }
 
 .category-badge {
@@ -317,6 +327,7 @@ body {
   border-radius: var(--radius);
   border: 1px solid var(--border-color);
   padding: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
 }
 
 .guess-form {
@@ -368,8 +379,13 @@ body {
 }
 
 .btn-primary:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(74, 158, 237, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(74, 158, 237, 0.4);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(74, 158, 237, 0.4);
 }
 
 .btn-primary:disabled {
@@ -386,8 +402,13 @@ body {
 }
 
 .btn-success:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--glow-green);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4);
+}
+
+.btn-success:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(34, 197, 94, 0.4);
 }
 
 .feedback {
@@ -451,7 +472,12 @@ body {
 
 .mic-btn:hover:not(:disabled) {
   background: rgba(139, 92, 246, 0.2);
-  transform: scale(1.1);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(139, 92, 246, 0.2);
+}
+
+.mic-btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .mic-btn:disabled {
@@ -543,7 +569,8 @@ body {
 }
 
 .overlay-title {
-  font-size: 22px;
+  font-family: 'Fredoka', cursive;
+  font-size: 26px;
   font-weight: 700;
   margin-bottom: 4px;
 }
