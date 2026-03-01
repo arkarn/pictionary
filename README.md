@@ -49,6 +49,7 @@ We use a scheduled pipeline to improve drawing quality and reduce latency:
 
 - **Finetuning Notebook**: [Google Colab](https://colab.research.google.com/drive/1LMFJDHu9ZS9_uyKLn097_n8Gw0ASmL_c?usp=sharing)
 - **Model Registry**: [Hugging Face](https://huggingface.co/siddss/pictionary-ministral-8b-merged)
+- **Dataset**: [Training Data](finetuning-dataset/train.jsonl) | [Validation Data](finetuning-dataset/val.jsonl)
 
 ## 🏁 Getting Started
 
