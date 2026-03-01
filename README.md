@@ -43,6 +43,8 @@ We use a scheduled pipeline to improve drawing quality and reduce latency:
 2.  **User Feedback**: Real-world performance is tracked via user ratings.
 3.  **Finetuning**: Ministral 8B is finetuned on the combined dataset to optimize for JSON output consistency and artistic quality.
 
+![Dataset Visualization](demo/dataset.png)
+
 ![Finetuning Metrics](demo/finetuning_charts.png)
 
 - **Finetuning Notebook**: [Google Colab](https://colab.research.google.com/drive/1LMFJDHu9ZS9_uyKLn097_n8Gw0ASmL_c?usp=sharing)
