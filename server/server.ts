@@ -11,6 +11,7 @@ import { z } from "zod";
 import { pickRandomWord, type WordEntry } from "./words.js";
 import { EXCALIDRAW_SYSTEM_PROMPT } from "./excalidraw-prompt.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Mistral } from "@mistralai/mistralai";
 
 const DIST_DIR = import.meta.filename.endsWith(".ts")
     ? path.join(import.meta.dirname, "..", "dist")
@@ -70,7 +71,13 @@ if (!apiKey) {
     console.warn("GEMINI_API_KEY is not set. Assuming test environment.");
 }
 
+const mistralApiKey = process.env.MISTRAL_API_KEY;
+if (!mistralApiKey) {
+    console.warn("MISTRAL_API_KEY is not set. Assuming test environment.");
+}
+
 const genAI = new GoogleGenerativeAI(apiKey || "dummy");
+const mistral = new Mistral({ apiKey: mistralApiKey || "dummy" });
 
 const model = genAI.getGenerativeModel({
     model: "gemini-3-flash-preview",
@@ -112,18 +119,42 @@ async function generateDrawing(wordObj: WordEntry): Promise<string> {
  * Streaming drawing generator — yields text chunks as Gemini produces them.
  * Used by the /api/draw-stream WebSocket endpoint.
  */
-export async function* generateDrawingStream(wordObj: WordEntry): AsyncGenerator<string> {
-    if (!apiKey) {
-        console.log(`[Pictionary DEV] Mocking stream for "${wordObj.word}"`);
-        yield "[]";
-        return;
-    }
-    console.log(`[Pictionary STREAM] Generating drawing for: ${wordObj.word} (${wordObj.category})...`);
+export async function* generateDrawingStream(wordObj: WordEntry, modelName: string = "gemini"): AsyncGenerator<string> {
+    const isMistral = modelName.includes("istral") || modelName.includes("stral");
     const prompt = `Draw the following ${wordObj.category}: ${wordObj.word}\n\nReturn ONLY the JSON array of Excalidraw elements. Nothing else.`;
-    const result = await model.generateContentStream(prompt);
-    for await (const chunk of result.stream) {
-        const text = chunk.text();
-        if (text) yield text;
+
+    if (!isMistral) {
+        if (!apiKey) {
+            console.log(`[Pictionary DEV] Mocking stream for "${wordObj.word}"`);
+            yield "[]";
+            return;
+        }
+        console.log(`[Pictionary STREAM] Generating drawing with Gemini for: ${wordObj.word} (${wordObj.category})...`);
+        const result = await model.generateContentStream(prompt);
+        for await (const chunk of result.stream) {
+            const text = chunk.text();
+            if (text) yield text;
+        }
+    } else {
+        if (!mistralApiKey) {
+            console.log(`[Pictionary DEV] Mocking Mistral stream for "${wordObj.word}"`);
+            yield "[]";
+            return;
+        }
+        console.log(`[Pictionary STREAM] Generating drawing with ${modelName} for: ${wordObj.word} (${wordObj.category})...`);
+        const stream = await mistral.chat.stream({
+            model: modelName,
+            messages: [
+                { role: "system", content: EXCALIDRAW_SYSTEM_PROMPT },
+                { role: "user", content: prompt }
+            ],
+            temperature: 0.7,
+        });
+
+        for await (const chunk of stream) {
+            const text = chunk.data.choices[0].delta.content;
+            if (text && typeof text === "string") yield text;
+        }
     }
 }
 
@@ -157,19 +188,12 @@ export function createServer(): McpServer {
                 gameOver: false,
             };
 
-            const elementsJson = await generateDrawing(currentWord);
-
             return {
                 content: [
                     {
                         type: "text",
                         text: JSON.stringify({
-                            status: "drawing_complete",
-                            wordLength: currentWord.word.length,
-                            category: currentWord.category,
-                            blanks: getBlanks(gameState),
-                            attemptsLeft: gameState.attemptsLeft,
-                            elements: elementsJson,
+                            status: "ready",
                         }),
                     },
                 ],
@@ -237,6 +261,53 @@ export function createServer(): McpServer {
         }
     );
 
+    // ── Tool: decrement_attempt (UI-only for timeout) ───────────────────
+    registerAppTool(
+        server,
+        "decrement_attempt",
+        {
+            title: "Decrement Attempt",
+            description: "Automatically reduce attempt when timeout occurs.",
+            inputSchema: {},
+            _meta: { ui: { resourceUri, visibility: ["app"] } },
+        },
+        async (): Promise<CallToolResult> => {
+            if (!gameState.won && !gameState.gameOver && gameState.attemptsLeft > 0) {
+                gameState.attemptsLeft--;
+                const hidden = [];
+                for (let i = 0; i < gameState.currentWord.word.length; i++) {
+                    if (!gameState.revealedLetters.has(i)) hidden.push(i);
+                }
+                if (hidden.length > 0) {
+                    gameState.revealedLetters.add(hidden[Math.floor(Math.random() * hidden.length)]);
+                }
+
+                if (gameState.attemptsLeft <= 0) {
+                    gameState.gameOver = true;
+                    for (let i = 0; i < gameState.currentWord.word.length; i++) {
+                        gameState.revealedLetters.add(i);
+                    }
+                }
+            }
+
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            correct: false,
+                            blanks: getBlanks(gameState),
+                            attemptsLeft: gameState.attemptsLeft,
+                            won: gameState.won,
+                            gameOver: gameState.gameOver,
+                            word: gameState.won || gameState.gameOver ? gameState.currentWord.word : undefined,
+                        }),
+                    },
+                ],
+            };
+        }
+    );
+
     // ── Tool: get_game_state (UI-only) ─────────────────────────────────
     registerAppTool(
         server,
@@ -278,7 +349,7 @@ export function createServer(): McpServer {
                 ui: {
                     csp: {
                         connectDomains: ["ws://localhost:3001"],
-                        resourceDomains: ["https://esm.sh", "wss://api.elevenlabs.io", "https://api.elevenlabs.io"],
+                        resourceDomains: ["https://esm.sh", "wss://api.elevenlabs.io", "https://api.elevenlabs.io", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
                     },
                     permissions: {
                         microphone: {}

@@ -61,9 +61,11 @@ async function startStreamableHTTPServer(): Promise<void> {
     // Create a second WebSocket Server for Drawing Streaming
     const drawWss = new WebSocketServer({ noServer: true });
 
-    drawWss.on("connection", async (clientWs) => {
+    drawWss.on("connection", async (clientWs, req) => {
         try {
-            console.log("[Draw Stream] Client connected");
+            const url = new URL(req.url || "", `http://localhost`);
+            const modelName = url.searchParams.get("model") || "gemini";
+            console.log(`[Draw Stream] Client connected, model: ${modelName}`);
             const wordObj = pickRandomWord();
             const state = setGameStateFromWord(wordObj);
 
@@ -76,8 +78,8 @@ async function startStreamableHTTPServer(): Promise<void> {
                 attemptsLeft: state.attemptsLeft,
             }));
 
-            // 2. Stream drawing chunks as they arrive from Gemini
-            const stream = generateDrawingStream(wordObj);
+            // 2. Stream drawing chunks as they arrive from Gemini/Mistral
+            const stream = generateDrawingStream(wordObj, modelName);
             const startTime = performance.now();
             console.log(`[Draw Stream] Starting generation stream for ${wordObj.word}`);
 
@@ -144,7 +146,7 @@ async function startStreamableHTTPServer(): Promise<void> {
             wss.handleUpgrade(request, socket, head, (ws) => {
                 wss.emit("connection", ws, request);
             });
-        } else if (request.url === "/api/draw-stream") {
+        } else if (request.url?.startsWith("/api/draw-stream")) {
             drawWss.handleUpgrade(request, socket, head, (ws) => {
                 drawWss.emit("connection", ws, request);
             });
