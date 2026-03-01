@@ -12,10 +12,190 @@
 import type { App, McpUiHostContext } from "@modelcontextprotocol/ext-apps";
 import { useApp, useHostStyles } from "@modelcontextprotocol/ext-apps/react";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { StrictMode, useState, useEffect, useCallback } from "react";
+import { StrictMode, useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { Excalidraw, convertToExcalidrawElements } from "@excalidraw/excalidraw";
 import "./global.css";
+
+// ─── Filler words to skip when matching STT output ───────────────────
+const FILLER_WORDS = new Set([
+    "the", "a", "an", "is", "it", "i", "me", "my", "we", "he", "she",
+    "and", "or", "but", "to", "of", "in", "on", "at", "for", "so",
+    "um", "uh", "like", "just", "that", "this", "with", "do", "does",
+    "was", "are", "be", "been", "not", "no", "yes", "yeah", "ok",
+    "its", "am", "if", "as", "by", "up", "oh", "ah", "hmm",
+]);
+
+// ─── useAudioGuess Hook ─────────────────────────────────────────────
+interface AudioGuessOpts {
+    wordLength: number;
+    onWordMatch: (word: string) => void;
+    enabled: boolean;
+}
+
+function useAudioGuess({ wordLength, onWordMatch, enabled }: AudioGuessOpts) {
+    const [isListening, setIsListening] = useState(false);
+    const [liveTranscript, setLiveTranscript] = useState("");
+    const [audioError, setAudioError] = useState<string | null>(null);
+
+    const wsRef = useRef<WebSocket | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const audioCtxRef = useRef<AudioContext | null>(null);
+    const processorRef = useRef<ScriptProcessorNode | null>(null);
+    const matchedRef = useRef(false);
+    const enabledRef = useRef(enabled);
+    const timeoutRef = useRef<number | null>(null);
+
+    // Keep enabledRef in sync
+    useEffect(() => { enabledRef.current = enabled; }, [enabled]);
+
+    const cleanup = useCallback(() => {
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
+        if (processorRef.current) {
+            processorRef.current.disconnect();
+            processorRef.current = null;
+        }
+        if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
+            audioCtxRef.current.close().catch(() => { });
+            audioCtxRef.current = null;
+        }
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(t => t.stop());
+            streamRef.current = null;
+        }
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
+        setIsListening(false);
+        setLiveTranscript("");
+    }, []);
+
+    const start = useCallback(async () => {
+        setAudioError(null);
+        matchedRef.current = false;
+
+        try {
+            // 1. Request mic
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
+
+            // 2. Open WebSocket to our backend proxy instead of direct to ElevenLabs
+            // The MCP app is hosted in an iframe by basic-host on port 8081, but the 
+            // backend MCP server is running on port 3001. So we must hardcode the port.
+            const wsUrl = `ws://localhost:3001/api/stt`;
+            const ws = new WebSocket(wsUrl);
+            wsRef.current = ws;
+
+            ws.onopen = () => {
+                console.log("[AudioGuess] WebSocket connected");
+                setIsListening(true);
+
+                // Auto-stop after 3 minutes
+                if (timeoutRef.current) clearTimeout(timeoutRef.current);
+                timeoutRef.current = window.setTimeout(() => {
+                    console.log("[AudioGuess] 3 minute timeout reached, stopping.");
+                    cleanup();
+                }, 180000);
+
+                // 3. Start capturing & sending audio
+                const audioCtx = new AudioContext({ sampleRate: 16000 });
+                audioCtxRef.current = audioCtx;
+                const source = audioCtx.createMediaStreamSource(stream);
+                const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+                processorRef.current = processor;
+
+                source.connect(processor);
+                processor.connect(audioCtx.destination);
+
+                processor.onaudioprocess = (e) => {
+                    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+                    const float32 = e.inputBuffer.getChannelData(0);
+                    const int16 = new Int16Array(float32.length);
+                    for (let i = 0; i < float32.length; i++) {
+                        const s = Math.max(-1, Math.min(1, float32[i]));
+                        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    const bytes = new Uint8Array(int16.buffer);
+                    let binary = "";
+                    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+                    const b64 = btoa(binary);
+                    wsRef.current.send(JSON.stringify({
+                        message_type: "input_audio_chunk",
+                        audio_base_64: b64,
+                    }));
+                };
+            };
+
+            ws.onmessage = async (event) => {
+                if (matchedRef.current) return;
+
+                try {
+                    let textData = event.data;
+                    if (textData instanceof Blob) {
+                        textData = await textData.text();
+                    }
+                    const msg = JSON.parse(textData);
+                    console.log("[AudioGuess] STT message:", msg);
+
+                    // Different providers use different keys. ElevenLabs might use 'type' or 'message_type'
+                    const isTranscript = msg.message_type === "partial_transcript" ||
+                        msg.message_type === "committed_transcript" ||
+                        msg.type === "partial_transcript" ||
+                        msg.type === "committed_transcript" ||
+                        msg.type === "realtimeResponse" ||
+                        msg.text !== undefined;
+
+                    if (isTranscript) {
+                        const text = (msg.text || msg.transcript || "").trim();
+                        if (text) {
+                            setLiveTranscript(text);
+                            // Submit the entire transcribed segment to the backend
+                            if (enabledRef.current) {
+                                console.log(`[AudioGuess] Submitting phrase: "${text}"`);
+                                onWordMatch(text);
+                            }
+                        }
+                    }
+
+                    if (msg.message_type && msg.message_type.includes("error")) {
+                        console.error("[AudioGuess] ElevenLabs error:", msg);
+                        setAudioError(msg.message_type);
+                    }
+                } catch (err) {
+                    console.error("[AudioGuess] JSON parse error on message:", err, event.data);
+                }
+            };
+
+            ws.onclose = (e) => {
+                console.log("[AudioGuess] WebSocket closed:", e.code, e.reason);
+                cleanup();
+            };
+
+            ws.onerror = () => {
+                setAudioError("WebSocket connection error");
+                cleanup();
+            };
+        } catch (err: any) {
+            console.error("[AudioGuess] Start error:", err);
+            setAudioError(err.message || "Microphone error");
+            cleanup();
+        }
+    }, [wordLength, onWordMatch, cleanup]);
+
+    // Auto-cleanup if disabled externally
+    useEffect(() => {
+        if (!enabled && isListening) cleanup();
+    }, [enabled, isListening, cleanup]);
+
+    // Cleanup on unmount
+    useEffect(() => cleanup, [cleanup]);
+
+    return { isListening, liveTranscript, audioError, start, stop: cleanup };
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -110,84 +290,79 @@ interface PictionaryProps {
     hostContext: McpUiHostContext | null;
 }
 
-function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: PictionaryProps) {
+function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostContext }: PictionaryProps) {
     const [gameState, setGameState] = useState<GameState | null>(null);
     const [guess, setGuess] = useState("");
-    const [feedback, setFeedback] = useState<{ type: "wrong" | "hint"; text: string } | null>(null);
+    const [feedback, setFeedback] = useState<{ type: "wrong" | "hint" | "success"; text: string } | null>(null);
     // Store fully-converted Excalidraw elements (already processed by convertToExcalidrawElements)
     const [excalidrawElements, setExcalidrawElements] = useState<any[]>([]);
     const [canvasKey, setCanvasKey] = useState(0);
     const [isStreaming, setIsStreaming] = useState(false);
     const [isNewGameLoading, setIsNewGameLoading] = useState(false);
+    const [audioMode, setAudioMode] = useState(false);
 
-    // Helper: parse → filter → convert → set elements and bump key to remount Excalidraw
-    const applyElements = (rawJson: any[]) => {
+    const animationRef = useRef<number | null>(null);
+    const excalidrawApiRef = useRef<any>(null);
+    const drawWsRef = useRef<WebSocket | null>(null);
+    const jsonBufferRef = useRef<string>("");
+
+    // Helper: Heal partial JSON array streamed from LLM
+    const healJsonArray = useCallback((partial: string): any[] => {
+        let s = partial.trim();
+        if (!s.startsWith("[")) {
+            // Sometimes it starts with ```json
+            if (s.includes("[")) {
+                s = s.substring(s.indexOf("["));
+            } else {
+                return [];
+            }
+        }
+
+        try { return JSON.parse(s); } catch (e) { }
+
+        // Remove trailing commas
+        if (s.endsWith(",")) s = s.slice(0, -1);
+
+        // Try common closures
+        try { return JSON.parse(s + "}]"); } catch (e) { }
+        try { return JSON.parse(s + "]}"); } catch (e) { }
+        try { return JSON.parse(s + "]"); } catch (e) { }
+
+        // Fallback: finding the last complete object
+        const lastBrace = s.lastIndexOf("}");
+        if (lastBrace > 0) {
+            try { return JSON.parse(s.substring(0, lastBrace + 1) + "]"); } catch (e) { }
+        }
+
+        return [];
+    }, []);
+
+    // Helper: parse -> filter -> convert -> immediate update scene
+    const applyElementsInstant = useCallback((rawJson: any[]) => {
         const valid = rawJson.filter(
             (el: any) => el.type && !["cameraUpdate", "delete", "restoreCheckpoint"].includes(el.type)
         );
         if (valid.length > 0) {
             try {
                 const full = convertToExcalidrawElements(valid);
-                console.log("[Pictionary UI] applyElements:", full.length, "elements");
                 setExcalidrawElements(full);
-                setCanvasKey(k => k + 1); // remount Excalidraw with fresh initialData
+                if (excalidrawApiRef.current) {
+                    excalidrawApiRef.current.updateScene({ elements: full });
+                }
             } catch (e) {
                 console.error("[Pictionary UI] convertToExcalidrawElements failed:", e);
             }
         }
-    };
+    }, []);
 
-    // Parse elements from toolInputs (streaming path)
+    // Cleanup WebSockets on unmount
     useEffect(() => {
-        const rawElements = toolInputsPartial?.elements || toolInputs?.elements;
-        if (rawElements) {
-            try {
-                const parsed = JSON.parse(rawElements);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    applyElements(parsed);
-                }
-            } catch { /* partial JSON, ignore */ }
-            setIsStreaming(!!toolInputsPartial);
-        }
-    }, [toolInputs, toolInputsPartial]);
+        return () => {
+            if (drawWsRef.current) drawWsRef.current.close();
+        };
+    }, []);
 
-    // Parse game state AND elements from tool result (server-side Mistral generation)
-    useEffect(() => {
-        if (!toolResult) return;
-        try {
-            const text = toolResult.content?.find((c: any) => c.type === "text");
-            if (text && "text" in text) {
-                const data = JSON.parse((text as any).text);
-                if (data.wordLength) {
-                    setGameState({
-                        wordLength: data.wordLength,
-                        category: data.category,
-                        blanks: data.blanks,
-                        attemptsLeft: data.attemptsLeft,
-                        won: data.won ?? false,
-                        gameOver: data.gameOver ?? false,
-                    });
-                    setFeedback(null);
-                    setGuess("");
-                }
-                if (data.elements) {
-                    try {
-                        const parsed = JSON.parse(data.elements);
-                        console.log("[Pictionary UI] toolResult elements:", parsed.length);
-                        if (Array.isArray(parsed)) applyElements(parsed);
-                    } catch (e) {
-                        console.error("[Pictionary UI] Failed to parse elements JSON:", e);
-                    }
-                } else {
-                    console.warn("[Pictionary UI] No elements in toolResult. Keys:", Object.keys(data));
-                }
-            }
-        } catch (e) {
-            console.error("[Pictionary UI] Failed to parse toolResult:", e);
-        }
-    }, [toolResult]);
-
-    // Fetch initial game state on mount
+    // Initial fetch of game state (if reconnected)
     useEffect(() => {
         (async () => {
             try {
@@ -210,13 +385,13 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
         })();
     }, [app]);
 
-    const handleGuess = useCallback(async () => {
-        if (!guess.trim() || !gameState || gameState.won || gameState.gameOver) return;
+    const submitGuess = useCallback(async (word: string): Promise<boolean> => {
+        if (!word.trim() || !gameState || gameState.won || gameState.gameOver) return false;
 
         try {
             const result = await app.callServerTool({
                 name: "check_guess",
-                arguments: { guess: guess.trim() },
+                arguments: { guess: word.trim() },
             });
             const text = result.content?.find((c: any) => c.type === "text");
             if (text && "text" in text) {
@@ -234,19 +409,26 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
                 );
 
                 if (data.correct) {
-                    setFeedback(null);
+                    setFeedback({ type: "success", text: `🎉 "${word.trim()}" is correct! Great job!` });
+                    return true;
                 } else {
                     setFeedback({
                         type: "wrong",
-                        text: `"${guess.trim()}" is not correct!`,
+                        text: `"${word.trim()}" is not correct!`,
                     });
                 }
             }
         } catch (e) {
             console.error("Guess error:", e);
         }
+        return false;
+    }, [app, gameState]);
+
+    const handleGuess = useCallback(async () => {
+        if (!guess.trim()) return;
+        await submitGuess(guess.trim());
         setGuess("");
-    }, [app, guess, gameState]);
+    }, [guess, submitGuess]);
 
     const handleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
@@ -255,53 +437,120 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
         [handleGuess]
     );
 
-    const handleNewGame = useCallback(async () => {
+    // Audio guess: when a matching word is spoken, auto-submit it
+    const handleAudioWordMatch = useCallback(async (word: string) => {
+        setGuess(word);
+        const wasCorrect = await submitGuess(word);
+        if (wasCorrect) {
+            setAudioMode(false); // stop mic on correct answer
+        } else {
+            // Give visual feedback but let the microphone keep running
+            setGuess("");
+        }
+    }, [submitGuess]);
+
+    const audioGuess = useAudioGuess({
+        wordLength: gameState?.wordLength ?? 0,
+        onWordMatch: handleAudioWordMatch,
+        enabled: audioMode && !!(gameState && !gameState.won && !gameState.gameOver),
+    });
+
+    const toggleAudio = useCallback(() => {
+        if (audioGuess.isListening) {
+            audioGuess.stop();
+            setAudioMode(false);
+        } else {
+            setAudioMode(true);
+            audioGuess.start();
+        }
+    }, [audioGuess]);
+
+    const handleNewGame = useCallback(() => {
         if (isNewGameLoading) return;
         setIsNewGameLoading(true);
+
+        // Reset audio state and timer
+        if (audioGuess.isListening) {
+            audioGuess.stop();
+        }
+        setAudioMode(false);
+
+        // Reset canvas & streaming state
+        if (drawWsRef.current) drawWsRef.current.close();
+        jsonBufferRef.current = "";
         setExcalidrawElements([]);
+        setCanvasKey(k => k + 1); // Force clear board immediately
         setFeedback(null);
         setGuess("");
         setGameState(null);
+        setIsStreaming(true);
 
         try {
-            // Call draw_pictionary directly from the UI — no new host card is created
-            const result = await app.callServerTool({ name: "draw_pictionary", arguments: {} });
-            const text = result.content?.find((c: any) => c.type === "text");
-            if (text && "text" in text) {
-                const data = JSON.parse((text as any).text);
-                if (data.wordLength) {
-                    setGameState({
-                        wordLength: data.wordLength,
-                        category: data.category,
-                        blanks: data.blanks,
-                        attemptsLeft: data.attemptsLeft,
-                        won: false,
-                        gameOver: false,
-                    });
+            const wsUrl = `ws://localhost:3001/api/draw-stream`;
+            const ws = new WebSocket(wsUrl);
+            drawWsRef.current = ws;
+            const startTime = performance.now();
+            let elementCount = 0;
+
+            ws.onmessage = (event) => {
+                try {
+                    const elapsed = Math.round(performance.now() - startTime);
+                    const msg = JSON.parse(event.data);
+
+                    if (msg.type === "game_state") {
+                        console.log(`[UI Stream] +${elapsed}ms - Got game state`);
+                        setGameState({
+                            wordLength: msg.wordLength,
+                            category: msg.category,
+                            blanks: msg.blanks,
+                            attemptsLeft: msg.attemptsLeft,
+                            won: false,
+                            gameOver: false,
+                        });
+                        setIsNewGameLoading(false); // Game is ready to play
+                    } else if (msg.type === "chunk" && msg.text) {
+                        console.log(`[UI Stream] +${elapsed}ms - Received chunk (${msg.text.length} chars)`);
+                        jsonBufferRef.current += msg.text;
+                        const partialElements = healJsonArray(jsonBufferRef.current);
+                        if (partialElements.length > elementCount) {
+                            const newCount = partialElements.length - elementCount;
+                            console.log(`[UI Stream] +${elapsed}ms - Parsed ${newCount} new elements (Total: ${partialElements.length})`);
+                            applyElementsInstant(partialElements);
+                            elementCount = partialElements.length;
+                        }
+                    } else if (msg.type === "done") {
+                        console.log(`[UI Stream] +${elapsed}ms - Stream complete`);
+                        setIsStreaming(false);
+                        ws.close();
+                    }
+                } catch (e) {
+                    console.error("[Pictionary UI] Error in draw stream message:", e);
                 }
-                if (data.elements) {
-                    const parsed = JSON.parse(data.elements);
-                    console.log(`[Pictionary DEV] Drawing word in category "${data.category}", ${parsed.length} elements`);
-                    if (Array.isArray(parsed)) applyElements(parsed);
-                }
-            }
+            };
+
+            ws.onerror = (err) => {
+                console.error("[Pictionary UI] WebSocket error:", err);
+                setIsStreaming(false);
+                setIsNewGameLoading(false);
+            };
+
+            ws.onclose = () => {
+                setIsStreaming(false);
+                setIsNewGameLoading(false);
+            };
+
         } catch (e) {
-            console.error("[Pictionary UI] Failed to start new game:", e);
-        } finally {
+            console.error("[Pictionary UI] Failed to start WebSocket streaming:", e);
             setIsNewGameLoading(false);
+            setIsStreaming(false);
         }
-    }, [app, isNewGameLoading]);
+    }, [isNewGameLoading, applyElementsInstant, healJsonArray, audioGuess]);
 
     const isGameActive = gameState && !gameState.won && !gameState.gameOver;
     const MAX_ATTEMPTS = 6;
 
     return (
         <div className="app-container">
-            <header className="header">
-                <h1>Pictionary</h1>
-                <p className="subtitle">AI draws, you guess!</p>
-            </header>
-
             <div className="main-content">
                 {/* Left: Drawing Canvas */}
                 <div className="canvas-panel">
@@ -311,15 +560,16 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
                             Drawing...
                         </div>
                     )}
-                    {excalidrawElements.length > 0 ? (
-                        <div style={{ width: "100%", height: "480px" }}>
+                    {isStreaming || excalidrawElements.length > 0 ? (
+                        <div className="canvas-wrapper">
                             <Excalidraw
                                 key={canvasKey}
+                                excalidrawAPI={(api) => excalidrawApiRef.current = api}
                                 initialData={{
                                     elements: excalidrawElements,
                                     appState: {
-                                        viewBackgroundColor: "#1a2340",
-                                        theme: "dark",
+                                        viewBackgroundColor: "#f3f4f6",
+                                        theme: "light",
                                         viewModeEnabled: true,
                                         zenModeEnabled: true,
                                         gridModeEnabled: false,
@@ -329,16 +579,32 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
                                 viewModeEnabled={true}
                                 zenModeEnabled={true}
                                 gridModeEnabled={false}
-                                theme="dark"
+                                theme="light"
+                                UIOptions={{
+                                    canvasActions: {
+                                        changeViewBackgroundColor: false,
+                                        clearCanvas: false,
+                                        export: false,
+                                        loadScene: false,
+                                        saveAsImage: false,
+                                        saveToActiveFile: false,
+                                        toggleTheme: false,
+                                    },
+                                }}
                             />
                         </div>
                     ) : (
                         <div className="canvas-placeholder">
                             <div className="icon">🎨</div>
-                            <p>Waiting for the AI to draw...</p>
-                            <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                                Ask the model to "start a round of pictionary"
-                            </p>
+                            <p>Waiting for the drawing...</p>
+                            <button
+                                className="btn-primary"
+                                onClick={handleNewGame}
+                                disabled={isNewGameLoading}
+                                style={{ marginTop: '1rem' }}
+                            >
+                                {isNewGameLoading ? "⏳ Starting..." : "START NEW ROUND"}
+                            </button>
                         </div>
                     )}
                 </div>
@@ -414,7 +680,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
                                             <input
                                                 type="text"
                                                 className="guess-input"
-                                                placeholder="Type your guess..."
+                                                placeholder={audioGuess.isListening ? "Listening..." : "Type your guess..."}
                                                 value={guess}
                                                 onChange={(e) => setGuess(e.target.value)}
                                                 onKeyDown={handleKeyDown}
@@ -428,7 +694,24 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult }: Picti
                                             >
                                                 Guess
                                             </button>
+                                            <button
+                                                className={`mic-btn ${audioGuess.isListening ? "active" : ""}`}
+                                                onClick={toggleAudio}
+                                                disabled={!isGameActive}
+                                                title={audioGuess.isListening ? "Stop listening" : "Voice guess"}
+                                            >
+                                                {audioGuess.isListening ? "🔴" : "🎙️"}
+                                            </button>
                                         </div>
+                                        {audioGuess.isListening && audioGuess.liveTranscript && (
+                                            <div className="live-transcript">
+                                                <span className="transcript-dot" />
+                                                {audioGuess.liveTranscript}
+                                            </div>
+                                        )}
+                                        {audioGuess.audioError && (
+                                            <div className="feedback wrong">{audioGuess.audioError}</div>
+                                        )}
                                         {feedback && (
                                             <div className={`feedback ${feedback.type}`}>{feedback.text}</div>
                                         )}

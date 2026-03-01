@@ -1,19 +1,19 @@
 :root {
-  --bg-primary: #0f1729;
-  --bg-secondary: #1a2340;
-  --bg-card: #1e2a4a;
-  --text-primary: #e8ecf4;
-  --text-secondary: #8b99b5;
-  --text-muted: #5a6a8a;
-  --accent-blue: #4a9eed;
+  --bg-primary: #f3f4f6;
+  --bg-secondary: #e5e7eb;
+  --bg-card: #ffffff;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  --accent-blue: #3b82f6;
   --accent-green: #22c55e;
   --accent-red: #ef4444;
   --accent-amber: #f59e0b;
   --accent-purple: #8b5cf6;
-  --border-color: rgba(74, 158, 237, 0.15);
-  --glow-blue: 0 0 20px rgba(74, 158, 237, 0.15);
-  --glow-green: 0 0 20px rgba(34, 197, 94, 0.2);
-  --glow-red: 0 0 20px rgba(239, 68, 68, 0.2);
+  --border-color: rgba(0, 0, 0, 0.1);
+  --glow-blue: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --glow-green: 0 4px 12px rgba(34, 197, 94, 0.15);
+  --glow-red: 0 4px 12px rgba(239, 68, 68, 0.15);
   --radius: 12px;
 }
 
@@ -39,9 +39,10 @@ body {
 .app-container {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  padding: 16px;
-  gap: 16px;
+  height: 100vh;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
 }
 
 .header {
@@ -67,7 +68,7 @@ body {
 
 .main-content {
   display: flex;
-  gap: 16px;
+  gap: 0;
   flex: 1;
   min-height: 0;
 }
@@ -76,13 +77,14 @@ body {
 
 .canvas-panel {
   flex: 2;
-  background: var(--bg-card);
-  border-radius: var(--radius);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--glow-blue);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   overflow: hidden;
   position: relative;
-  min-height: 400px;
 }
 
 .canvas-panel .excalidraw-container {
@@ -107,6 +109,31 @@ body {
 }
 
 .canvas-placeholder p {
+  font-size: 14px;
+}
+
+.canvas-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+/* Hide Excalidraw's default clutter */
+.excalidraw .App-menu_top,
+.excalidraw .layer-ui__wrapper__top-right,
+.excalidraw .layer-ui__wrapper__bottom,
+.excalidraw .disable-zen-mode,
+.excalidraw .layer-ui__wrapper__footer-right,
+.excalidraw .layer-ui__wrapper__footer-left {
+  display: none !important;
+}
+
+.canvas-placeholder .btn-primary {
+  margin-top: 1rem;
+  padding: 10px 20px;
   font-size: 14px;
 }
 
@@ -395,6 +422,86 @@ body {
   background: rgba(245, 158, 11, 0.1);
   color: var(--accent-amber);
   border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.feedback.success {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--accent-green);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  font-weight: 600;
+}
+
+/* ─── Mic Button ─────────────────────────────────────── */
+
+.mic-btn {
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  color: var(--accent-purple);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.mic-btn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.2);
+  transform: scale(1.1);
+}
+
+.mic-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mic-btn.active {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  animation: micPulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.25);
+}
+
+@keyframes micPulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.2);
+  }
+
+  50% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+  }
+}
+
+/* ─── Live Transcript ────────────────────────────────── */
+
+.live-transcript {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--accent-purple);
+  font-style: italic;
+  animation: slideIn 0.3s ease;
+}
+
+.transcript-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-purple);
+  border-radius: 50%;
+  animation: blink 1s step-start infinite;
+  flex-shrink: 0;
 }
 
 /* ─── Win / Game Over Overlay ────────────────────────── */
