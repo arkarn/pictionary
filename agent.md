@@ -16,14 +16,15 @@ The original goal was to have the *host LLM* (e.g., Claude Desktop) stream the d
 * When a user clicks "Call Tool" in `basic-host`, it sends the JSON payload from the text area instantly as a single `tools/call` request.
 * Because there is no LLM generating the JSON live, no partial input events fire.
 
-### The Solution: Simulated Streaming (Animated Rendering)
-To work around the lack of host-side streaming in `basic-host` while still providing a "live drawing" experience, we implemented a **Simulated Streaming Architecture**:
+### The Solution: True Streaming via WebSocket Sidechannel
+To work around the lack of host-side streaming in `basic-host` while still providing a "live drawing" experience, we implemented a **True Streaming Architecture** via a WebSocket sidechannel:
 
-1. **Backend Generation**: The `draw_pictionary` tool in `server.ts` calls the Gemini API directly to generate the complete Excalidraw JSON array in one shot.
-2. **Instant Delivery**: The server returns the final, complete array to the frontend in its `CallToolResult`.
-3. **Animated Frontend Rendering**: The React frontend (`mcp-app.tsx`) intercepts the full array. Instead of rendering it immediately, it uses an interval to push the elements into the `Excalidraw` component one by one (e.g., every 300ms) using `excalidrawApiRef.current.updateScene()`.
+1. **Backend Generation**: When the user clicks "New Game", the React frontend (`mcp-app.tsx`) connects to a custom WebSocket endpoint `ws://localhost:3001/api/draw-stream`.
+2. **Streaming Tokens**: The backend `main.ts` calls the Gemini API `generateContentStream()` and streams the raw text chunks across the WebSocket as they arrive.
+3. **Frontend JSON Healing**: The React frontend accumulates the raw text chunks, uses a custom "JSON healing" function (`healJsonArray`) to dynamically close unclosed brackets/braces, and extracts valid Excalidraw elements.
+4. **Real-Time Rendering**: As new elements become valid, the frontend instantly pushes them into the `Excalidraw` component using `excalidrawApiRef.current.updateScene()`.
 
-To the user, this looks exactly like real-time LLM streaming, but it bypasses the host entirely.
+This bypasses the MCP `callServerTool` request/response limitation and provides a genuine low-latency real-time streaming experience.
 
 ## Key Quirks & Implementation Details
 

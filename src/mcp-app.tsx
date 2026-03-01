@@ -303,111 +303,66 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
 
     const animationRef = useRef<number | null>(null);
     const excalidrawApiRef = useRef<any>(null);
+    const drawWsRef = useRef<WebSocket | null>(null);
+    const jsonBufferRef = useRef<string>("");
 
-    // Helper: parse → filter → convert → animate elements pushing one by one
-    const applyElements = useCallback((rawJson: any[]) => {
+    // Helper: Heal partial JSON array streamed from LLM
+    const healJsonArray = useCallback((partial: string): any[] => {
+        let s = partial.trim();
+        if (!s.startsWith("[")) {
+            // Sometimes it starts with ```json
+            if (s.includes("[")) {
+                s = s.substring(s.indexOf("["));
+            } else {
+                return [];
+            }
+        }
+
+        try { return JSON.parse(s); } catch (e) { }
+
+        // Remove trailing commas
+        if (s.endsWith(",")) s = s.slice(0, -1);
+
+        // Try common closures
+        try { return JSON.parse(s + "}]"); } catch (e) { }
+        try { return JSON.parse(s + "]}"); } catch (e) { }
+        try { return JSON.parse(s + "]"); } catch (e) { }
+
+        // Fallback: finding the last complete object
+        const lastBrace = s.lastIndexOf("}");
+        if (lastBrace > 0) {
+            try { return JSON.parse(s.substring(0, lastBrace + 1) + "]"); } catch (e) { }
+        }
+
+        return [];
+    }, []);
+
+    // Helper: parse -> filter -> convert -> immediate update scene
+    const applyElementsInstant = useCallback((rawJson: any[]) => {
         const valid = rawJson.filter(
             (el: any) => el.type && !["cameraUpdate", "delete", "restoreCheckpoint"].includes(el.type)
         );
         if (valid.length > 0) {
             try {
                 const full = convertToExcalidrawElements(valid);
-                console.log("[Pictionary UI] animateElements start:", full.length, "elements");
-
-                // Clear any existing animation
-                if (animationRef.current) clearInterval(animationRef.current);
-
-                // Reset canvas state
-                setExcalidrawElements([]);
-                setCanvasKey(k => k + 1); // remount once to clear
-                setIsStreaming(true);
-
-                let currentIndex = 0;
-
-                // Push one element at a time (e.g., every 300ms) to simulate drawing
-                animationRef.current = window.setInterval(() => {
-                    if (currentIndex < full.length) {
-                        const nextElements = full.slice(0, currentIndex + 1);
-                        setExcalidrawElements(nextElements);
-                        if (excalidrawApiRef.current) {
-                            excalidrawApiRef.current.updateScene({ elements: nextElements });
-                        }
-                        currentIndex++;
-                    } else {
-                        if (animationRef.current) clearInterval(animationRef.current);
-                        setIsStreaming(false);
-                        console.log("[Pictionary UI] animateElements complete");
-                    }
-                }, 300); // 300ms per shape
-
+                setExcalidrawElements(full);
+                if (excalidrawApiRef.current) {
+                    excalidrawApiRef.current.updateScene({ elements: full });
+                }
             } catch (e) {
                 console.error("[Pictionary UI] convertToExcalidrawElements failed:", e);
-                setIsStreaming(false);
             }
         }
     }, []);
 
-    // Cleanup animation on unmount
+    // Cleanup WebSockets on unmount
     useEffect(() => {
         return () => {
-            if (animationRef.current) clearInterval(animationRef.current);
+            if (drawWsRef.current) drawWsRef.current.close();
         };
     }, []);
 
-    // Parse elements from toolInputs (streaming path)
-    useEffect(() => {
-        const rawElements = toolInputsPartial?.elements || toolInputs?.elements;
-        if (rawElements) {
-            try {
-                const parsed = JSON.parse(rawElements);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    applyElements(parsed);
-                }
-            } catch { /* partial JSON, ignore */ }
-            setIsStreaming(!!toolInputsPartial);
-        }
-    }, [toolInputs, toolInputsPartial]);
-
-    // Parse game state AND elements from tool result (host LLM finishes drawing)
-    useEffect(() => {
-        if (!toolResult) return;
-        try {
-            const textContent = toolResult.content?.find((c: any) => c.type === "text");
-            if (textContent && "text" in textContent) {
-                const textStr = (textContent as any).text;
-                const data = JSON.parse(textStr);
-
-                if (data.wordLength) {
-                    setGameState({
-                        wordLength: data.wordLength,
-                        category: data.category,
-                        blanks: data.blanks,
-                        attemptsLeft: data.attemptsLeft,
-                        won: data.won ?? false,
-                        gameOver: data.gameOver ?? false,
-                    });
-                    setFeedback(null);
-                    setGuess("");
-                }
-                if (data.elements) {
-                    try {
-                        const parsed = JSON.parse(data.elements);
-                        console.log("[Pictionary UI] toolResult elements:", parsed.length);
-                        if (Array.isArray(parsed)) applyElements(parsed);
-                    } catch (e) {
-                        console.error("[Pictionary UI] Failed to parse elements JSON:", e);
-                    }
-                } else {
-                    console.warn("[Pictionary UI] No elements in toolResult. Keys:", Object.keys(data));
-                }
-            }
-        } catch (e) {
-            console.error("[Pictionary UI] Failed to parse toolResult:", e);
-            setIsNewGameLoading(false);
-        }
-    }, [toolResult, applyElements]);
-
-    // Fetch initial game state on mount
+    // Initial fetch of game state (if reconnected)
     useEffect(() => {
         (async () => {
             try {
@@ -510,7 +465,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
         }
     }, [audioGuess]);
 
-    const handleNewGame = useCallback(async () => {
+    const handleNewGame = useCallback(() => {
         if (isNewGameLoading) return;
         setIsNewGameLoading(true);
 
@@ -520,45 +475,76 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
         }
         setAudioMode(false);
 
-        if (animationRef.current) clearInterval(animationRef.current);
+        // Reset canvas & streaming state
+        if (drawWsRef.current) drawWsRef.current.close();
+        jsonBufferRef.current = "";
         setExcalidrawElements([]);
+        setCanvasKey(k => k + 1); // Force clear board immediately
         setFeedback(null);
         setGuess("");
         setGameState(null);
+        setIsStreaming(true);
 
         try {
-            // Call tool directly again now that generation is server-side
-            const result = await app.callServerTool({ name: "draw_pictionary", arguments: {} });
+            const wsUrl = `ws://localhost:3001/api/draw-stream`;
+            const ws = new WebSocket(wsUrl);
+            drawWsRef.current = ws;
+            const startTime = performance.now();
+            let elementCount = 0;
 
-            const textContent = result.content?.find((c: any) => c.type === "text");
-            if (textContent && "text" in textContent) {
-                const textStr = (textContent as any).text;
+            ws.onmessage = (event) => {
                 try {
-                    const data = JSON.parse(textStr);
-                    if (data.wordLength) {
+                    const elapsed = Math.round(performance.now() - startTime);
+                    const msg = JSON.parse(event.data);
+
+                    if (msg.type === "game_state") {
+                        console.log(`[UI Stream] +${elapsed}ms - Got game state`);
                         setGameState({
-                            wordLength: data.wordLength,
-                            category: data.category,
-                            blanks: data.blanks,
-                            attemptsLeft: data.attemptsLeft,
-                            won: data.won ?? false,
-                            gameOver: data.gameOver ?? false,
+                            wordLength: msg.wordLength,
+                            category: msg.category,
+                            blanks: msg.blanks,
+                            attemptsLeft: msg.attemptsLeft,
+                            won: false,
+                            gameOver: false,
                         });
-                    }
-                    if (data.elements) {
-                        const parsed = JSON.parse(data.elements);
-                        if (Array.isArray(parsed)) applyElements(parsed);
+                        setIsNewGameLoading(false); // Game is ready to play
+                    } else if (msg.type === "chunk" && msg.text) {
+                        console.log(`[UI Stream] +${elapsed}ms - Received chunk (${msg.text.length} chars)`);
+                        jsonBufferRef.current += msg.text;
+                        const partialElements = healJsonArray(jsonBufferRef.current);
+                        if (partialElements.length > elementCount) {
+                            const newCount = partialElements.length - elementCount;
+                            console.log(`[UI Stream] +${elapsed}ms - Parsed ${newCount} new elements (Total: ${partialElements.length})`);
+                            applyElementsInstant(partialElements);
+                            elementCount = partialElements.length;
+                        }
+                    } else if (msg.type === "done") {
+                        console.log(`[UI Stream] +${elapsed}ms - Stream complete`);
+                        setIsStreaming(false);
+                        ws.close();
                     }
                 } catch (e) {
-                    console.error("[Pictionary UI] Failed parsing new game result:", e);
+                    console.error("[Pictionary UI] Error in draw stream message:", e);
                 }
-            }
-            setIsNewGameLoading(false);
+            };
+
+            ws.onerror = (err) => {
+                console.error("[Pictionary UI] WebSocket error:", err);
+                setIsStreaming(false);
+                setIsNewGameLoading(false);
+            };
+
+            ws.onclose = () => {
+                setIsStreaming(false);
+                setIsNewGameLoading(false);
+            };
+
         } catch (e) {
-            console.error("[Pictionary UI] Failed to call new game tool:", e);
+            console.error("[Pictionary UI] Failed to start WebSocket streaming:", e);
             setIsNewGameLoading(false);
+            setIsStreaming(false);
         }
-    }, [app, isNewGameLoading, applyElements]);
+    }, [isNewGameLoading, applyElementsInstant, healJsonArray, audioGuess]);
 
     const isGameActive = gameState && !gameState.won && !gameState.gameOver;
     const MAX_ATTEMPTS = 6;
