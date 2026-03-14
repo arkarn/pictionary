@@ -7,6 +7,9 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import cors from "cors";
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 import type { Request, Response } from "express";
 import { WebSocketServer, WebSocket as NodeWebSocket, RawData } from "ws";
 import { createServer, pickRandomWord, setGameStateFromWord, getBlanks, generateDrawingStream } from "./server.js";
@@ -15,6 +18,26 @@ async function startStreamableHTTPServer(): Promise<void> {
     const port = parseInt(process.env.PORT ?? "3001", 10);
     const app = createMcpExpressApp({ host: "0.0.0.0" });
     app.use(cors());
+
+    // Serve static files from the dist directory
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const distPath = path.join(__dirname, "../dist");
+    
+    app.use(express.static(distPath));
+
+    // Serve the main HTML file for the root path
+    // Vite with vite-plugin-singlefile outputs to dist/mcp-app.html (based on INPUT env var)
+    // or dist/index.html depending on configuration. We'll try to serve what's there.
+    app.get("/", (req, res) => {
+        // First try mcp-app.html as per package.json build script
+        res.sendFile(path.join(distPath, "mcp-app.html"), (err) => {
+            if (err) {
+                // Fallback to index.html if the build output name changed
+                res.sendFile(path.join(distPath, "index.html"));
+            }
+        });
+    });
 
     // Create the WebSocket Server for our STT Proxy
     // We attach it to the Express HTTP Server on the 'upgrade' event
