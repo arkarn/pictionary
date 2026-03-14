@@ -3,10 +3,13 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "build": "INPUT=mcp-app.html vite build",
+        "build:app": "INPUT=mcp-app.html vite build",
+        "build:host": "cd host && INPUT=index.html vite build && INPUT=sandbox.html vite build",
+        "build": "npm run build:app && npm run build:host",
         "serve": "tsx server/main.ts",
         "start": "tsx server/main.ts",
-        "dev": "npm run build && npm run serve"
+        "dev": "npm run build && npm run serve",
+        "postinstall": "cd host && npm install"
     },
     "dependencies": {
         "@excalidraw/excalidraw": "^0.18.0",

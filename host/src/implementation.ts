@@ -7,7 +7,9 @@ import { getTheme, onThemeChange } from "./theme";
 import { HOST_STYLE_VARIABLES } from "./host-styles";
 
 
-const SANDBOX_PROXY_BASE_URL = "sandbox.html";
+const SANDBOX_PROXY_BASE_URL = typeof window !== "undefined" && window.location.port === "8080"
+  ? "http://localhost:8081/sandbox.html"
+  : "sandbox.html";
 const IMPLEMENTATION = { name: "MCP Apps Host", version: "1.0.0" };
 
 
@@ -187,7 +189,7 @@ export function loadSandboxProxy(
   });
 
   // Build sandbox URL with CSP query param for HTTP header-based CSP
-  const sandboxUrl = new URL(SANDBOX_PROXY_BASE_URL);
+  const sandboxUrl = new URL(SANDBOX_PROXY_BASE_URL, window.location.origin);
   if (csp) {
     sandboxUrl.searchParams.set("csp", JSON.stringify(csp));
   }

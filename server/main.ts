@@ -26,15 +26,19 @@ async function startStreamableHTTPServer(): Promise<void> {
     
     app.use(express.static(distPath));
 
+    // API endpoint for the MCP Host to find the server
+    app.get("/api/servers", (req, res) => {
+        // Return a relative URL to the /mcp endpoint
+        res.json(["/mcp"]);
+    });
+
     // Serve the main HTML file for the root path
-    // Vite with vite-plugin-singlefile outputs to dist/mcp-app.html (based on INPUT env var)
-    // or dist/index.html depending on configuration. We'll try to serve what's there.
     app.get("/", (req, res) => {
-        // First try mcp-app.html as per package.json build script
-        res.sendFile(path.join(distPath, "mcp-app.html"), (err) => {
+        // Prefer index.html (the MCP Host dashboard)
+        res.sendFile(path.join(distPath, "index.html"), (err) => {
             if (err) {
-                // Fallback to index.html if the build output name changed
-                res.sendFile(path.join(distPath, "index.html"));
+                // Fallback to mcp-app.html if index.html is missing
+                res.sendFile(path.join(distPath, "mcp-app.html"));
             }
         });
     });

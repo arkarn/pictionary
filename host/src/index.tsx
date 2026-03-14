@@ -581,7 +581,7 @@ async function connectToAllServers(): Promise<ServerInfo[]> {
 
   // Use allSettled to be resilient to individual server failures
   const results = await Promise.allSettled(
-    serverUrls.map((url) => connectToServer(new URL(url)))
+    serverUrls.map((url) => connectToServer(new URL(url, window.location.origin)))
   );
 
   const servers: ServerInfo[] = [];

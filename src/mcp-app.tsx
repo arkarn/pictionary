@@ -84,9 +84,10 @@ function useAudioGuess({ wordLength, onWordMatch, enabled }: AudioGuessOpts) {
             streamRef.current = stream;
 
             // 2. Open WebSocket to our backend proxy instead of direct to ElevenLabs
-            // The MCP app is hosted in an iframe by basic-host on port 8081, but the 
-            // backend MCP server is running on port 3001. So we must hardcode the port.
-            const wsUrl = `ws://localhost:3001/api/stt`;
+            // Deriving the WebSocket URL from the current window location
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}/api/stt`;
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
@@ -492,7 +493,9 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
         setIsStreaming(true);
 
         try {
-            const wsUrl = `ws://localhost:3001/api/draw-stream?model=${selectedModel}`;
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}/api/draw-stream?model=${selectedModel}`;
             const ws = new WebSocket(wsUrl);
             drawWsRef.current = ws;
             const startTime = performance.now();
