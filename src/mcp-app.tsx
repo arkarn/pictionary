@@ -27,14 +27,16 @@ const FILLER_WORDS = new Set([
     "its", "am", "if", "as", "by", "up", "oh", "ah", "hmm",
 ]);
 
-// ─── useAudioGuess Hook ─────────────────────────────────────────────
-interface AudioGuessOpts {
-    wordLength: number;
+// @ts-ignore
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+// ─── useElevenLabsSTT Hook ──────────────────────────────────────────
+interface STTOpts {
     onWordMatch: (word: string) => void;
     enabled: boolean;
 }
 
-function useAudioGuess({ wordLength, onWordMatch, enabled }: AudioGuessOpts) {
+function useElevenLabsSTT({ onWordMatch, enabled }: STTOpts) {
     const [isListening, setIsListening] = useState(false);
     const [liveTranscript, setLiveTranscript] = useState("");
     const [audioError, setAudioError] = useState<string | null>(null);
@@ -85,7 +87,6 @@ function useAudioGuess({ wordLength, onWordMatch, enabled }: AudioGuessOpts) {
             streamRef.current = stream;
 
             // 2. Open WebSocket to our backend proxy instead of direct to ElevenLabs
-            // Deriving the WebSocket URL from the current window location
             const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
             const host = window.location.host;
             const wsUrl = `${protocol}//${host}/api/stt`;
@@ -93,13 +94,13 @@ function useAudioGuess({ wordLength, onWordMatch, enabled }: AudioGuessOpts) {
             wsRef.current = ws;
 
             ws.onopen = () => {
-                console.log("[AudioGuess] WebSocket connected");
+                console.log("[ElevenLabs] WebSocket connected");
                 setIsListening(true);
 
                 // Auto-stop after 3 minutes
                 if (timeoutRef.current) clearTimeout(timeoutRef.current);
                 timeoutRef.current = window.setTimeout(() => {
-                    console.log("[AudioGuess] 3 minute timeout reached, stopping.");
+                    console.log("[ElevenLabs] 3 minute timeout reached, stopping.");
                     cleanup();
                 }, 180000);
 
@@ -141,9 +142,8 @@ function useAudioGuess({ wordLength, onWordMatch, enabled }: AudioGuessOpts) {
                         textData = await textData.text();
                     }
                     const msg = JSON.parse(textData);
-                    console.log("[AudioGuess] STT message:", msg);
+                    console.log("[ElevenLabs] STT message:", msg);
 
-                    // Different providers use different keys. ElevenLabs might use 'type' or 'message_type'
                     const isTranscript = msg.message_type === "partial_transcript" ||
                         msg.message_type === "committed_transcript" ||
                         msg.type === "partial_transcript" ||
@@ -155,45 +155,117 @@ function useAudioGuess({ wordLength, onWordMatch, enabled }: AudioGuessOpts) {
                         const text = (msg.text || msg.transcript || "").trim();
                         if (text) {
                             setLiveTranscript(text);
-                            // Submit the entire transcribed segment to the backend
                             if (enabledRef.current) {
-                                console.log(`[AudioGuess] Submitting phrase: "${text}"`);
+                                console.log(`[ElevenLabs] Submitting phrase: "${text}"`);
                                 onWordMatch(text);
                             }
                         }
                     }
 
                     if (msg.message_type && msg.message_type.includes("error")) {
-                        console.error("[AudioGuess] ElevenLabs error:", msg);
+                        console.error("[ElevenLabs] Error:", msg);
                         setAudioError(msg.message_type);
                     }
                 } catch (err) {
-                    console.error("[AudioGuess] JSON parse error on message:", err, event.data);
+                    console.error("[ElevenLabs] JSON parse error:", err, event.data);
                 }
             };
 
-            ws.onclose = (e) => {
-                console.log("[AudioGuess] WebSocket closed:", e.code, e.reason);
-                cleanup();
-            };
-
+            ws.onclose = () => cleanup();
             ws.onerror = () => {
-                setAudioError("WebSocket connection error");
+                setAudioError("WebSocket error");
                 cleanup();
             };
         } catch (err: any) {
-            console.error("[AudioGuess] Start error:", err);
             setAudioError(err.message || "Microphone error");
             cleanup();
         }
-    }, [wordLength, onWordMatch, cleanup]);
+    }, [onWordMatch, cleanup]);
 
-    // Auto-cleanup if disabled externally
     useEffect(() => {
+        if (enabled && !isListening) start();
         if (!enabled && isListening) cleanup();
-    }, [enabled, isListening, cleanup]);
+    }, [enabled, isListening, start, cleanup]);
 
-    // Cleanup on unmount
+    useEffect(() => cleanup, [cleanup]);
+
+    return { isListening, liveTranscript, audioError, start, stop: cleanup };
+}
+
+// ─── useWebSpeechSTT Hook ───────────────────────────────────────────
+function useWebSpeechSTT({ onWordMatch, enabled }: STTOpts) {
+    const [isListening, setIsListening] = useState(false);
+    const [liveTranscript, setLiveTranscript] = useState("");
+    const [audioError, setAudioError] = useState<string | null>(null);
+    const recognitionRef = useRef<any>(null);
+
+    const cleanup = useCallback(() => {
+        if (recognitionRef.current) {
+            recognitionRef.current.onend = null;
+            recognitionRef.current.onresult = null;
+            recognitionRef.current.onerror = null;
+            try { recognitionRef.current.stop(); } catch (e) { }
+            recognitionRef.current = null;
+        }
+        setIsListening(false);
+        setLiveTranscript("");
+    }, []);
+
+    const start = useCallback(() => {
+        if (!SpeechRecognition) {
+            setAudioError("Web Speech API not supported in this browser.");
+            return;
+        }
+        setAudioError(null);
+
+        try {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => setIsListening(true);
+            recognition.onresult = (event: any) => {
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    const result = event.results[i][0].transcript;
+                    transcript += result;
+                    if (event.results[i].isFinal) {
+                        onWordMatch(result.trim());
+                    }
+                }
+                setLiveTranscript(transcript);
+            };
+            recognition.onerror = (event: any) => {
+                if (event.error === 'no-speech') return;
+                console.error("[WebSpeech] Error:", event.error);
+                setAudioError(event.error);
+                cleanup();
+            };
+            recognition.onend = () => {
+                setIsListening(false);
+            };
+
+            recognitionRef.current = recognition;
+            recognition.start();
+        } catch (err: any) {
+            setAudioError(err.message || "Failed to start speech recognition");
+        }
+    }, [onWordMatch, cleanup]);
+
+    useEffect(() => {
+        if (enabled && !isListening) start();
+        if (!enabled && isListening) cleanup();
+    }, [enabled, isListening, start, cleanup]);
+
+    // Handle auto-restart if enabled and browser stopped it
+    useEffect(() => {
+        if (enabled && !isListening && SpeechRecognition) {
+            const timer = setTimeout(start, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [enabled, isListening, start]);
+
     useEffect(() => cleanup, [cleanup]);
 
     return { isListening, liveTranscript, audioError, start, stop: cleanup };
@@ -305,6 +377,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
     const [pointsWon, setPointsWon] = useState(0);
     const [pointsLost, setPointsLost] = useState(0);
     const [selectedModel, setSelectedModel] = useState("gemini-3-flash-preview");
+    const [selectedSttProvider, setSelectedSttProvider] = useState<"elevenlabs" | "web-speech">("web-speech");
     const [showSettings, setShowSettings] = useState(false);
     const [rating, setRating] = useState<"up" | "down" | null>(null);
     const hasMountedRef = useRef(false);
@@ -453,19 +526,23 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
         [handleGuess]
     );
 
-    // Audio guess: when a matching word is spoken, auto-submit it
     const handleAudioWordMatch = useCallback(async (word: string) => {
         setGuess(word);
         await submitGuess(word);
-        // Do not toggle setAudioMode(false) here, keep it listening permanently for next game
         setGuess("");
     }, [submitGuess]);
 
-    const audioGuess = useAudioGuess({
-        wordLength: gameState?.wordLength ?? 0,
+    const elevenLabs = useElevenLabsSTT({
         onWordMatch: handleAudioWordMatch,
-        enabled: audioMode && !!(gameState && !gameState.won && !gameState.gameOver),
+        enabled: audioMode && selectedSttProvider === "elevenlabs" && !!(gameState && !gameState.won && !gameState.gameOver),
     });
+
+    const webSpeech = useWebSpeechSTT({
+        onWordMatch: handleAudioWordMatch,
+        enabled: audioMode && selectedSttProvider === "web-speech" && !!(gameState && !gameState.won && !gameState.gameOver),
+    });
+
+    const audioGuess = selectedSttProvider === "elevenlabs" ? elevenLabs : webSpeech;
 
     const toggleAudio = useCallback(() => {
         if (audioGuess.isListening) {
@@ -481,10 +558,9 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
         if (isNewGameLoading) return;
         setIsNewGameLoading(true);
 
-        // Reset audio state and timer
-        if (audioGuess.isListening) {
-            audioGuess.stop();
-        }
+        // Reset audio state
+        elevenLabs.stop();
+        webSpeech.stop();
         setAudioMode(false);
 
         // Reset canvas & streaming state
@@ -735,23 +811,47 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
 
                     {showSettings && (
                         <div className="settings-panel info-card" style={{ marginBottom: '8px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>Model Selection</label>
-                                <select
-                                    value={selectedModel}
-                                    onChange={(e) => setSelectedModel(e.target.value)}
-                                    disabled={isNewGameLoading || !!(gameState && !gameState.won && !gameState.gameOver)}
-                                    className="model-select"
-                                    style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', fontSize: '14px', width: '100%' }}
-                                >
-                                    <option value="gemini-3-flash-preview">Gemini 3 Flash</option>
-                                    <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
-                                    <option value="devstral-2512">Devstral</option>
-                                    <option value="mistral-large-2512">Mistral Large</option>
-                                    <option value="ministral-8b-2410">Ministral 8B</option>
-                                    <option value="ministral-8b-2512">Ministral 8B (finetuned)</option>
-                                    <option value="ministral-3b-2512">Ministral 3B</option>
-                                </select>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div>
+                                    <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Model Selection</label>
+                                    <select
+                                        value={selectedModel}
+                                        onChange={(e) => setSelectedModel(e.target.value)}
+                                        disabled={isNewGameLoading || !!(gameState && !gameState.won && !gameState.gameOver)}
+                                        className="model-select"
+                                        style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', fontSize: '14px', width: '100%' }}
+                                    >
+                                        <option value="gemini-3-flash-preview">Gemini 3 Flash</option>
+                                        <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
+                                        <option value="devstral-2512">Devstral</option>
+                                        <option value="mistral-large-2512">Mistral Large</option>
+                                        <option value="ministral-8b-2410">Ministral 8B</option>
+                                        <option value="ministral-8b-2512">Ministral 8B (finetuned)</option>
+                                        <option value="ministral-3b-2512">Ministral 3B</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Voice Guessing (STT)</label>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button
+                                            className={`btn ${selectedSttProvider === "web-speech" ? "btn-primary" : "btn-secondary"}`}
+                                            onClick={() => setSelectedSttProvider("web-speech")}
+                                            style={{ flex: 1, fontSize: '12px', padding: '6px' }}
+                                        >
+                                            Google Web Speech
+                                        </button>
+                                        <button
+                                            className={`btn ${selectedSttProvider === "elevenlabs" ? "btn-primary" : "btn-secondary"}`}
+                                            onClick={() => setSelectedSttProvider("elevenlabs")}
+                                            style={{ flex: 1, fontSize: '12px', padding: '6px' }}
+                                        >
+                                            ElevenLabs Scribe
+                                        </button>
+                                    </div>
+                                    <p style={{ fontSize: '10px', marginTop: '4px', color: 'var(--text-secondary)' }}>
+                                        {selectedSttProvider === "web-speech" ? "Using free browser-native speech recognition (Chrome/Edge)." : "Using ultra-low latency ElevenLabs AI (requires API key)."}
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     )}
