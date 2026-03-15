@@ -9,10 +9,8 @@ type ThemeListener = (theme: Theme) => void;
 
 const listeners = new Set<ThemeListener>();
 
-// Get initial theme from system preference
-let currentTheme: Theme = window.matchMedia("(prefers-color-scheme: dark)").matches
-  ? "dark"
-  : "light";
+// Get initial theme, defaulting to light
+let currentTheme: Theme = "light";
 
 // Apply theme to document
 function applyTheme(theme: Theme) {

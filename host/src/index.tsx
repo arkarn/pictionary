@@ -341,7 +341,7 @@ function ToolCallInfoPanel({ toolCallInfo, isDestroying, onRequestClose, onClose
     >
       {/* Row 1: Header with server:tool name and close button */}
       <div className={styles.appHeader}>
-        <span>{toolCallInfo.serverInfo.name}:<span className={styles.toolName}>{toolCallInfo.tool.name}</span></span>
+        {!isApp && <span>{toolCallInfo.serverInfo.name}:<span className={styles.toolName}>{toolCallInfo.tool.name}</span></span>}
         {onRequestClose && !isDestroying && (
           <button
             className={styles.closeButton}
@@ -353,8 +353,8 @@ function ToolCallInfoPanel({ toolCallInfo, isDestroying, onRequestClose, onClose
         )}
       </div>
 
-      {/* Row 2: Tool Input */}
-      <CollapsiblePanel icon="📥" label="Tool Input" content={inputJson} />
+      {/* Row 2: Tool Input (Hide if App to reduce clutter) */}
+      {!isApp && <CollapsiblePanel icon="📥" label="Tool Input" content={inputJson} />}
 
       {/* Row 3: App iframe (if app) */}
       {isApp && (
@@ -369,12 +369,14 @@ function ToolCallInfoPanel({ toolCallInfo, isDestroying, onRequestClose, onClose
         </ErrorBoundary>
       )}
 
-      {/* Row 4: Tool Result */}
-      <ErrorBoundary>
-        <Suspense fallback="Loading result...">
-          <ToolResultPanel toolCallInfo={toolCallInfo} />
-        </Suspense>
-      </ErrorBoundary>
+      {/* Row 4: Tool Result (Hide if App to reduce clutter) */}
+      {!isApp && (
+        <ErrorBoundary>
+          <Suspense fallback="Loading result...">
+            <ToolResultPanel toolCallInfo={toolCallInfo} />
+          </Suspense>
+        </ErrorBoundary>
+      )}
     </div>
   );
 }

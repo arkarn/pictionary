@@ -303,7 +303,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
     const [audioMode, setAudioMode] = useState(true);
     const [pointsWon, setPointsWon] = useState(0);
     const [pointsLost, setPointsLost] = useState(0);
-    const [selectedModel, setSelectedModel] = useState("mistral-large-2512");
+    const [selectedModel, setSelectedModel] = useState("gemini");
     const [rating, setRating] = useState<"up" | "down" | null>(null);
     const hasMountedRef = useRef(false);
     const timerRef = useRef<number | null>(null);
