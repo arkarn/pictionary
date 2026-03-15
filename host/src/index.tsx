@@ -118,13 +118,15 @@ function Host({ serversPromise }: HostProps) {
           onCloseComplete={() => completeClose(info.id)}
         />
       ))}
-      <CallToolPanel
-        serversPromise={serversPromise}
-        addToolCall={(info) => setToolCalls([...toolCalls, { ...info, id: nextToolCallId++ }])}
-        initialServer={queryParams.server}
-        initialTool={queryParams.tool}
-        autoCall={queryParams.call}
-      />
+      {toolCalls.length === 0 && (
+        <CallToolPanel
+          serversPromise={serversPromise}
+          addToolCall={(info) => setToolCalls([...toolCalls, { ...info, id: nextToolCallId++ }])}
+          initialServer={queryParams.server}
+          initialTool={queryParams.tool}
+          autoCall={queryParams.call}
+        />
+      )}
     </>
   );
 }
