@@ -198,8 +198,13 @@ function useWebSpeechSTT({ onWordMatch, enabled }: STTOpts) {
     const [liveTranscript, setLiveTranscript] = useState("");
     const [audioError, setAudioError] = useState<string | null>(null);
     const recognitionRef = useRef<any>(null);
+    const timeoutRef = useRef<number | null>(null);
 
     const cleanup = useCallback(() => {
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+        }
         if (recognitionRef.current) {
             recognitionRef.current.onend = null;
             recognitionRef.current.onresult = null;
@@ -224,7 +229,15 @@ function useWebSpeechSTT({ onWordMatch, enabled }: STTOpts) {
             recognition.interimResults = true;
             recognition.lang = 'en-US';
 
-            recognition.onstart = () => setIsListening(true);
+            recognition.onstart = () => {
+                setIsListening(true);
+                // Auto-stop after 3 minutes to prevent background resource usage
+                if (timeoutRef.current) clearTimeout(timeoutRef.current);
+                timeoutRef.current = window.setTimeout(() => {
+                    console.log("[WebSpeech] 3 minute timeout reached, stopping.");
+                    cleanup();
+                }, 180000);
+            };
             recognition.onresult = (event: any) => {
                 let transcript = '';
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -561,7 +574,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
         // Reset audio state
         elevenLabs.stop();
         webSpeech.stop();
-        setAudioMode(false);
+        setAudioMode(true);
 
         // Reset canvas & streaming state
         if (drawWsRef.current) drawWsRef.current.close();
@@ -776,19 +789,6 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                         <span className="panel-title" style={{ fontSize: '18px', letterSpacing: '2px', color: 'var(--accent-purple)', fontWeight: 800 }}>PICTIONARY</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <button
-                                className={`mic-btn header-mic ${audioGuess.isListening ? "active" : ""}`}
-                                onClick={toggleAudio}
-                                disabled={!gameState || gameState.won || gameState.gameOver}
-                                title={audioGuess.isListening ? "Stop listening" : "Voice guess"}
-                                style={{ width: '36px', height: '36px' }}
-                            >
-                                {audioGuess.isListening ? (
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect width="12" height="12" x="6" y="6" rx="2" /></svg>
-                                ) : (
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
-                                )}
-                            </button>
-                            <button
                                 className={`btn-icon ${showSettings ? "active" : ""}`}
                                 onClick={() => setShowSettings(!showSettings)}
                                 title="Settings"
@@ -927,7 +927,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                                             <input
                                                 type="text"
                                                 className="guess-input"
-                                                placeholder={audioGuess.isListening ? "Listening..." : "Type your guess..."}
+                                                placeholder={audioGuess.isListening ? "Voice Active: Speak or Type..." : "Voice Timeout: Type your guess..."}
                                                 value={guess}
                                                 onChange={(e) => setGuess(e.target.value)}
                                                 onKeyDown={handleKeyDown}
@@ -942,9 +942,23 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                                                 Guess
                                             </button>
                                         </div>
+                                        {audioMode && isGameActive && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', marginTop: '6px' }}>
+                                                {audioGuess.isListening ? (
+                                                    <>
+                                                        <span className="transcript-dot" style={{ background: 'var(--accent-green)', boxShadow: '0 0 8px var(--accent-green)' }} />
+                                                        <span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>VOICE ACTIVE</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span className="transcript-dot" style={{ background: 'var(--text-muted)' }} />
+                                                        <span style={{ color: 'var(--text-muted)' }}>VOICE TIMED OUT (Refresh to re-enable)</span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
                                         {audioGuess.isListening && audioGuess.liveTranscript && (
-                                            <div className="live-transcript">
-                                                <span className="transcript-dot" />
+                                            <div className="live-transcript" style={{ marginTop: '8px' }}>
                                                 {audioGuess.liveTranscript}
                                             </div>
                                         )}
