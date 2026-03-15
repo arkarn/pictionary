@@ -304,6 +304,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
     const [pointsWon, setPointsWon] = useState(0);
     const [pointsLost, setPointsLost] = useState(0);
     const [selectedModel, setSelectedModel] = useState("gemini");
+    const [showSettings, setShowSettings] = useState(false);
     const [rating, setRating] = useState<"up" | "down" | null>(null);
     const hasMountedRef = useRef(false);
     const timerRef = useRef<number | null>(null);
@@ -355,6 +356,12 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                 setExcalidrawElements(full);
                 if (excalidrawApiRef.current) {
                     excalidrawApiRef.current.updateScene({ elements: full });
+                    // Zoom to fit elements with a small delay to ensure rendering is complete
+                    setTimeout(() => {
+                        if (excalidrawApiRef.current) {
+                            excalidrawApiRef.current.scrollToContent(full, { fitToViewport: true, padding: 40 });
+                        }
+                    }, 50);
                 }
             } catch (e) {
                 console.error("[Pictionary UI] convertToExcalidrawElements failed:", e);
@@ -687,56 +694,66 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
 
                 {/* Right: Game Panel */}
                 <div className="game-panel">
-                    {/* Panel header with PICTIONARY title, Mic and New Game buttons always visible */}
-                    <div className="panel-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexDirection: 'column', gap: '8px' }}>
-                        <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span className="panel-title" style={{ fontSize: '20px', letterSpacing: '2px', color: 'var(--accent-purple)' }}>PICTIONARY</span>
-                            <div style={{ display: 'flex', gap: '12px', fontSize: '14px', fontWeight: 'bold' }}>
-                                <span style={{ color: 'var(--accent-green)' }}>Won: {pointsWon}</span>
-                                <span style={{ color: 'var(--accent-red)' }}>Lost: {pointsLost}</span>
-                            </div>
+                    {/* Panel header with PICTIONARY title, Mic and New Game buttons */}
+                    <div className="panel-header">
+                        <span className="panel-title" style={{ fontSize: '18px', letterSpacing: '2px', color: 'var(--accent-purple)', fontWeight: 800 }}>PICTIONARY</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                                className={`mic-btn header-mic ${audioGuess.isListening ? "active" : ""}`}
+                                onClick={toggleAudio}
+                                disabled={!gameState || gameState.won || gameState.gameOver}
+                                title={audioGuess.isListening ? "Stop listening" : "Voice guess"}
+                                style={{ width: '36px', height: '36px' }}
+                            >
+                                {audioGuess.isListening ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect width="12" height="12" x="6" y="6" rx="2" /></svg>
+                                ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
+                                )}
+                            </button>
+                            <button
+                                className={`btn-icon ${showSettings ? "active" : ""}`}
+                                onClick={() => setShowSettings(!showSettings)}
+                                title="Settings"
+                                style={{ width: '36px', height: '36px' }}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+                            </button>
+                            <button
+                                id="new-game-btn"
+                                className={`btn-icon ${isNewGameLoading ? "spinning" : ""}`}
+                                onClick={handleNewGame}
+                                disabled={isNewGameLoading}
+                                title="Restart Game"
+                                style={{ width: '36px', height: '36px' }}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+                            </button>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                            <span className="panel-title" style={{ fontSize: '12px' }}>Guess the word</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    </div>
+
+                    {showSettings && (
+                        <div className="settings-panel info-card" style={{ marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--text-secondary)' }}>Model Selection</label>
                                 <select
                                     value={selectedModel}
                                     onChange={(e) => setSelectedModel(e.target.value)}
                                     disabled={isNewGameLoading || !!(gameState && !gameState.won && !gameState.gameOver)}
                                     className="model-select"
-                                    style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', fontSize: '13px' }}
+                                    style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', fontSize: '14px', width: '100%' }}
                                 >
-                                    <option value="gemini">Gemini</option>
+                                    <option value="gemini">Gemini (Default)</option>
                                     <option value="devstral-2512">Devstral</option>
                                     <option value="mistral-large-2512">Mistral Large</option>
                                     <option value="ministral-8b-2410">Ministral 8B</option>
                                     <option value="ministral-8b-2512">Ministral 8B (finetuned)</option>
                                     <option value="ministral-3b-2512">Ministral 3B</option>
                                 </select>
-                                <button
-                                    className={`mic-btn header-mic ${audioGuess.isListening ? "active" : ""}`}
-                                    onClick={toggleAudio}
-                                    disabled={!gameState || gameState.won || gameState.gameOver}
-                                    title={audioGuess.isListening ? "Stop listening" : "Voice guess"}
-                                >
-                                    {audioGuess.isListening ? (
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="12" height="12" x="6" y="6" rx="2" /></svg>
-                                    ) : (
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
-                                    )}
-                                </button>
-                                <button
-                                    id="new-game-btn"
-                                    className={`btn-icon ${isNewGameLoading ? "spinning" : ""}`}
-                                    onClick={handleNewGame}
-                                    disabled={isNewGameLoading}
-                                    title="Restart Game"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
-                                </button>
                             </div>
                         </div>
-                    </div>
+                    )}
+
                     {gameState ? (
                         <>
                             {/* Word Info */}
@@ -850,6 +867,20 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                             </p>
                         </div>
                     )}
+
+                    <div style={{ marginTop: 'auto', padding: '16px 0' }}>
+                    <div className="score-board info-card" style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+                        <div style={{ textAlign: 'center' }}>
+                            <div className="score-label">Won</div>
+                            <div className="score-value" style={{ color: 'var(--accent-green)' }}>{pointsWon}</div>
+                        </div>
+                        <div style={{ height: '40px', width: '1px', background: 'var(--border-color)' }}></div>
+                        <div style={{ textAlign: 'center' }}>
+                            <div className="score-label">Lost</div>
+                            <div className="score-value" style={{ color: 'var(--accent-red)' }}>{pointsLost}</div>
+                        </div>
+                    </div>
+                    </div>
                 </div>
             </div>
         </div>

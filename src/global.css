@@ -45,161 +45,129 @@ body {
   padding: 0;
   gap: 0;
   overflow: hidden;
-}
-
-.header {
-  text-align: center;
-  padding: 12px 0;
-}
-
-.header h1 {
-  font-family: 'Fredoka', cursive;
-  font-size: 28px;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  letter-spacing: -0.5px;
-}
-
-.header .subtitle {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin-top: 4px;
+  background: white;
 }
 
 .main-content {
   display: flex;
-  gap: 0;
-  flex: 1;
-  min-height: 0;
-  padding: 0;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
 }
 
 /* ─── Drawing Canvas Panel ───────────────────────────── */
 
 .canvas-panel {
-  flex: 4;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-primary);
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  overflow: hidden;
+  flex: 1;
+  height: 100%;
+  background: #ffffff;
   position: relative;
-}
-
-.canvas-panel .excalidraw-container {
-  width: 100%;
-  height: 100%;
-}
-
-.canvas-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  min-height: 400px;
-  color: var(--text-muted);
-  gap: 12px;
-}
-
-.canvas-placeholder .icon {
-  font-size: 48px;
-  opacity: 0.5;
-}
-
-.canvas-placeholder p {
-  font-size: 14px;
+  overflow: hidden;
 }
 
 .canvas-wrapper {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow: hidden;
-}
-
-/* Hide Excalidraw's default clutter */
-.excalidraw .App-menu_top,
-.excalidraw .layer-ui__wrapper__top-right,
-.excalidraw .layer-ui__wrapper__bottom,
-.excalidraw .disable-zen-mode,
-.excalidraw .layer-ui__wrapper__footer-right,
-.excalidraw .layer-ui__wrapper__footer-left {
-  display: none !important;
-}
-
-.canvas-placeholder .btn-primary {
-  margin-top: 1rem;
-  padding: 10px 20px;
-  font-size: 14px;
-}
-
-.streaming-indicator {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(74, 158, 237, 0.2);
-  border: 1px solid rgba(74, 158, 237, 0.3);
-  color: var(--accent-blue);
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.6;
-  }
-}
-
-.streaming-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--accent-blue);
-  border-radius: 50%;
-  animation: blink 1s step-start infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
+  width: 100%;
+  height: 100%;
 }
 
 /* ─── Game Panel ─────────────────────────────────────── */
 
 .game-panel {
-  flex: 1;
+  width: 380px;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-width: 280px;
-  max-width: 360px;
+  background: #fdfdff;
+  padding: 24px;
+  border-left: 1px solid var(--border-color);
+  box-shadow: -4px 0 15px rgba(0,0,0,0.03);
+  z-index: 10;
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 0;
+  margin-bottom: 8px;
+}
+
+.panel-title {
+  font-family: 'Fredoka', cursive;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--accent-purple);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.score-board {
+  margin-top: auto;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(139, 92, 246, 0.02)) !important;
+  border: 2px solid rgba(139, 92, 246, 0.1) !important;
+  border-radius: 20px !important;
+  padding: 20px !important;
+}
+
+.score-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.score-value {
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.info-card {
+  background: white;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  padding: 20px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+}
+
+.category-badge {
+  display: inline-block;
+  background: var(--accent-purple);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 30px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+}
+
+.word-blanks {
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 8px;
+  text-align: center;
+  color: var(--text-primary);
+  font-family: 'Fredoka', sans-serif;
+  margin: 10px 0;
+}
+
+.settings-panel {
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.btn-icon.active {
+  background: var(--accent-purple);
+  color: white;
+  border-color: var(--accent-purple);
 }
 
 .panel-title {
