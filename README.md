@@ -1,71 +1,134 @@
-# Pictionary MCP App
+# 🎨 AI Pictionary MCP: Real-time Generative Sketching & Guessing
 
-![Pictionary Game Screenshot](demo/game.png)
+A high-performance, real-time Pictionary game powered by **Generative AI** and the **Model Context Protocol (MCP)**. Watch an AI artist (Gemini or Mistral) sketch stroke-by-stroke in real-time, and use your voice or keyboard to guess the word before time runs out!
 
-A real-time, AI-powered Pictionary game where an AI agent draws based on your requests, and you guess using voice or text. Built using the Model Context Protocol (MCP), Excalidraw, and finetuned LLMs.
+---
 
-## 🚀 Key Features
+## 🚀 Features
 
-- **AI-Driven Drawing**: Uses a finetuned Ministral 8B model to generate high-quality freehand and object strokes.
-- **Dynamic Rendering**: Leveraging the Excalidraw MCP to stream and render drawings in real-time.
-- **Real-time Voice Guessing**: Integrated ElevenLabs Speech-to-Text (STT) for seamless voice interaction.
-- **Feedback-Driven Optimization**: Thumbs up/down system to collect user feedback for continuous model improvement.
-- **Streaming Architecture**: True streaming of JSON elements for instant visual feedback.
-- **Scalable Design**: Easily generalized for multiplayer chatroom environments.
+-   **Real-time AI Sketching:** Watch the AI draw live using Excalidraw elements. The drawing is streamed chunk-by-chunk using a custom JSON "healing" parser for zero-latency progressive rendering.
+-   **Dual-Model Support:** Choose between **Gemini 2.0 Flash** (creative/detailed) or **Mistral Large** (fast/schematic) for different drawing styles.
+-   **Voice Guessing (STT):** Integrated with **ElevenLabs Scribe v2** via a secure WebSocket proxy for ultra-low latency speech-to-text. Just speak your guess!
+-   **MCP Native:** Built on the Model Context Protocol, allowing the game to be hosted, shared, and discovered as a standardized MCP service.
+-   **Unified Deployment:** A single-port architecture combining the MCP Host, the Game UI, and the Backend Server into one cohesive production artifact.
 
-## 🛠️ Technology Stack
-
-- **Frontend**: React, Excalidraw SDK, Vite
-- **Backend**: Node.js, Express, WebSocket (WS)
-- **AI/LLM**: Ministral 8B (Finetuned), Gemini 1.5 Pro (Data Generation)
-- **STT**: ElevenLabs Real-time STT
-- **Protocol**: Model Context Protocol (MCP)
+---
 
 ## 🏗️ Architecture
 
-### High-Level Overview
+The project follows a **Single-Service Hub** architecture to ensure low-latency communication between the AI models and the frontend.
 
-The system follows a modern client-server architecture with a heavy focus on streaming and real-time interaction.
+```mermaid
+graph TD
+    subgraph "Frontend (Browser)"
+        UI[Pictionary React App]
+        Host[MCP Host Dashboard]
+        Excal[Excalidraw Canvas]
+        Mic[Audio Processor]
+    end
 
-![Architecture Diagram](demo/arch1.png)
+    subgraph "Backend (Node.js/Express)"
+        Srv[MCP Server]
+        Proxy[ElevenLabs WS Proxy]
+        Draw[Drawing Streamer]
+        Heal[JSON Array Healer]
+    end
 
-### Streaming Flow
+    subgraph "External AI Services"
+        Gemini[Google Gemini API]
+        Mistral[Mistral AI API]
+        Eleven[ElevenLabs Scribe v2]
+    end
 
-Drawing elements are generated as a stream of JSON chunks, which are "healed" on the frontend to provide an instant drawing experience.
+    %% Drawing Flow
+    UI -- Request Game --> Draw
+    Draw -- Prompt --> Gemini
+    Draw -- Prompt --> Mistral
+    Gemini -- Partial JSON --> Heal
+    Mistral -- Partial JSON --> Heal
+    Heal -- Streamed Chunks --> UI
+    UI -- Render Strokes --> Excal
 
-![Streaming Architecture](demo/arch2.png)
+    %% Audio Flow
+    Mic -- Raw PCM --> Proxy
+    Proxy -- WebSocket --> Eleven
+    Eleven -- Transcript --> Proxy
+    Proxy -- JSON --> UI
+    UI -- Match Guess --> Srv
+```
 
-## 📈 Finetuning Pipeline
+---
 
-We use a scheduled pipeline to improve drawing quality and reduce latency:
+## 🔄 Workflow
 
-1.  **Data Generation**: High-quality JSON drawing data is generated using larger models like Gemini or Claude.
-2.  **User Feedback**: Real-world performance is tracked via user ratings.
-3.  **Finetuning**: Ministral 8B is finetuned on the combined dataset to optimize for JSON output consistency and artistic quality.
+1.  **Game Start:** The user clicks "New Game". The backend picks a random word (e.g., "Eiffel Tower").
+2.  **AI Prompting:** The server crafts a specialized "SVG-to-Excalidraw" prompt for the selected model.
+3.  **Streaming:** As the LLM generates the JSON array of drawing elements, the backend captures the stream.
+4.  **Healing & Rendering:** Since JSON chunks are often invalid partial strings, the `healJsonArray` utility fixes broken brackets and quotes in real-time, feeding valid elements to the `Excalidraw` canvas every few milliseconds.
+5.  **Guessing:** The user speaks or types.
+    -   *Audio:* PCM data is streamed to the ElevenLabs proxy. Matching words trigger an automatic guess submission.
+    -   *Text:* Standard keyboard input.
+6.  **Validation:** The MCP `check_guess` tool validates the guess and updates the shared game state.
 
-![Dataset Visualization](demo/dataset.png)
+---
 
-![Negative Feedback Samples](demo/feedback.png)
+## 🛠️ Tech Stack
 
-![Finetuning Metrics](demo/finetuning_charts.png)
+-   **Frontend:** React, TypeScript, Vite, Excalidraw SDK.
+-   **Backend:** Node.js, Express, `ws` (WebSockets).
+-   **Communication:** Model Context Protocol (MCP) for tool/resource discovery.
+-   **AI Models:**
+    -   **Gemini 2.0 Flash:** Primary drawing engine.
+    -   **Mistral Large 2:** Secondary drawing engine.
+    -   **ElevenLabs Scribe v2:** Real-time STT.
+-   **Deployment:** Dokploy / Nixpacks (Dockerized).
 
-- **Finetuning Notebook**: [Google Colab](https://colab.research.google.com/drive/1LMFJDHu9ZS9_uyKLn097_n8Gw0ASmL_c?usp=sharing)
-- **Model Registry**: [Hugging Face](https://huggingface.co/siddss/pictionary-ministral-8b-merged)
-- **Dataset**: [Training Data](finetuning-dataset/train.jsonl) | [Validation Data](finetuning-dataset/val.jsonl)
+---
 
-## 🏁 Getting Started
+## 🚦 Getting Started
 
-1.  **Clone the repository**:
+### Prerequisites
+-   Node.js v20+
+-   API Keys for:
+    -   Google Gemini (`GOOGLE_GENERIC_AI_API_KEY`)
+    -   Mistral AI (`MISTRAL_API_KEY`)
+    -   ElevenLabs (`ELEVENLABS_API_KEY`)
+
+### Installation
+
+1.  Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/pictionary-mcp-app.git
+    git clone https://github.com/arkarn/pictionary.git
+    cd pictionary
     ```
-2.  **Install dependencies**:
+
+2.  Install dependencies:
     ```bash
     npm install
     ```
-3.  **Set up environment variables**:
-    Create a `.env` file with your API keys (Gemini, Mistral, ElevenLabs).
-4.  **Run in development mode**:
+
+3.  Configure environment:
+    Create a `.env` file in the root:
+    ```env
+    PORT=3001
+    GOOGLE_GENERIC_AI_API_KEY=your_key
+    MISTRAL_API_KEY=your_key
+    ELEVENLABS_API_KEY=your_key
+    ```
+
+4.  Run in development:
     ```bash
     npm run dev
     ```
+
+5.  Build for production:
+    ```bash
+    npm run build
+    npm run serve
+    ```
+
+---
+
+## 🏆 Hackathon Credits
+
+Built with ❤️ for the MCP Hackathon. Pushing the boundaries of real-time generative UI and standardized AI communication.
