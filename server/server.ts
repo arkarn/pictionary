@@ -79,47 +79,11 @@ if (!mistralApiKey) {
 const genAI = new GoogleGenerativeAI(apiKey || "dummy");
 const mistral = new Mistral({ apiKey: mistralApiKey || "dummy" });
 
-const model = genAI.getGenerativeModel({
-    model: "gemini-3-flash-preview",
-    systemInstruction: {
-        role: "system",
-        parts: [{ text: EXCALIDRAW_SYSTEM_PROMPT }]
-    }
-});
-
-async function generateDrawing(wordObj: WordEntry): Promise<string> {
-    if (!apiKey) {
-        console.log(`[Pictionary DEV] Mocking drawing generation for "${wordObj.word}"`);
-        return "[]"; // Return empty elements in dev if no key
-    }
-    console.log(`[Pictionary] Generating drawing for secret word: ${wordObj.word} (${wordObj.category})...`);
-    try {
-        const prompt = `Draw the following ${wordObj.category}: ${wordObj.word}\n\nReturn ONLY the JSON array of Excalidraw elements. Nothing else.`;
-        const result = await model.generateContent(prompt);
-        const responseText = result.response.text();
-
-        let cleanJson = responseText;
-        if (cleanJson.includes("```json")) {
-            cleanJson = cleanJson.split("```json")[1].split("```")[0].trim();
-        } else if (cleanJson.includes("```")) {
-            cleanJson = cleanJson.split("```")[1].split("```")[0].trim();
-        }
-
-        // quick validation
-        JSON.parse(cleanJson);
-        return cleanJson;
-
-    } catch (error) {
-        console.error("[Pictionary] Error generating drawing:", error);
-        return "[]";
-    }
-}
-
 /**
- * Streaming drawing generator — yields text chunks as Gemini produces them.
+ * Streaming drawing generator — yields text chunks as Gemini or Mistral produces them.
  * Used by the /api/draw-stream WebSocket endpoint.
  */
-export async function* generateDrawingStream(wordObj: WordEntry, modelName: string = "gemini"): AsyncGenerator<string> {
+export async function* generateDrawingStream(wordObj: WordEntry, modelName: string = "gemini-3-flash-preview"): AsyncGenerator<string> {
     const isMistral = modelName.includes("istral") || modelName.includes("stral");
     const prompt = `Draw the following ${wordObj.category}: ${wordObj.word}\n\nReturn ONLY the JSON array of Excalidraw elements. Nothing else.`;
 
@@ -129,8 +93,21 @@ export async function* generateDrawingStream(wordObj: WordEntry, modelName: stri
             yield "[]";
             return;
         }
-        console.log(`[Pictionary STREAM] Generating drawing with Gemini for: ${wordObj.word} (${wordObj.category})...`);
-        const result = await model.generateContentStream(prompt);
+
+        // Default to gemini-3-flash-preview if a generic name is passed
+        const targetModel = modelName === "gemini" ? "gemini-3-flash-preview" : modelName;
+
+        console.log(`[Pictionary STREAM] Generating drawing with ${targetModel} for: ${wordObj.word} (${wordObj.category})...`);
+        
+        const geminiModel = genAI.getGenerativeModel({
+            model: targetModel,
+            systemInstruction: {
+                role: "system",
+                parts: [{ text: EXCALIDRAW_SYSTEM_PROMPT }]
+            }
+        });
+
+        const result = await geminiModel.generateContentStream(prompt);
         for await (const chunk of result.stream) {
             const text = chunk.text();
             if (text) yield text;

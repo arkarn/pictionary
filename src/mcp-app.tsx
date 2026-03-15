@@ -304,7 +304,7 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
     const [audioMode, setAudioMode] = useState(true);
     const [pointsWon, setPointsWon] = useState(0);
     const [pointsLost, setPointsLost] = useState(0);
-    const [selectedModel, setSelectedModel] = useState("gemini");
+    const [selectedModel, setSelectedModel] = useState("gemini-3-flash-preview");
     const [showSettings, setShowSettings] = useState(false);
     const [rating, setRating] = useState<"up" | "down" | null>(null);
     const hasMountedRef = useRef(false);
@@ -744,7 +744,8 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                                     className="model-select"
                                     style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', fontSize: '14px', width: '100%' }}
                                 >
-                                    <option value="gemini">Gemini (Default)</option>
+                                    <option value="gemini-3-flash-preview">Gemini 3 Flash</option>
+                                    <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
                                     <option value="devstral-2512">Devstral</option>
                                     <option value="mistral-large-2512">Mistral Large</option>
                                     <option value="ministral-8b-2410">Ministral 8B</option>
