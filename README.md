@@ -18,44 +18,7 @@ A high-performance, real-time Pictionary game powered by **Generative AI** and t
 
 The project follows a **Single-Service Hub** architecture to ensure low-latency communication between the AI models and the frontend.
 
-```mermaid
-graph TD
-    subgraph "Frontend (Browser)"
-        UI[Pictionary React App]
-        Host[MCP Host Dashboard]
-        Excal[Excalidraw Canvas]
-        Mic[Audio Processor]
-    end
-
-    subgraph "Backend (Node.js/Express)"
-        Srv[MCP Server]
-        Proxy[ElevenLabs WS Proxy]
-        Draw[Drawing Streamer]
-        Heal[JSON Array Healer]
-    end
-
-    subgraph "External AI Services"
-        Gemini[Google Gemini API]
-        Mistral[Mistral AI API]
-        Eleven[ElevenLabs Scribe v2]
-    end
-
-    %% Drawing Flow
-    UI -- Request Game --> Draw
-    Draw -- Prompt --> Gemini
-    Draw -- Prompt --> Mistral
-    Gemini -- Partial JSON --> Heal
-    Mistral -- Partial JSON --> Heal
-    Heal -- Streamed Chunks --> UI
-    UI -- Render Strokes --> Excal
-
-    %% Audio Flow
-    Mic -- Raw PCM --> Proxy
-    Proxy -- WebSocket --> Eleven
-    Eleven -- Transcript --> Proxy
-    Proxy -- JSON --> UI
-    UI -- Match Guess --> Srv
-```
+![Pictionary MCP Architecture](./mermaid-diagram.png)
 
 ---
 
