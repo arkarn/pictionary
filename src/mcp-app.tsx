@@ -15,6 +15,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { StrictMode, useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { Excalidraw, convertToExcalidrawElements } from "@excalidraw/excalidraw";
+import "@excalidraw/excalidraw/index.css";
 import "./global.css";
 
 // ─── Filler words to skip when matching STT output ───────────────────
@@ -353,15 +354,13 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
         if (valid.length > 0) {
             try {
                 const full = convertToExcalidrawElements(valid);
-                setExcalidrawElements(full);
+                // During streaming, only use updateScene for speed and reliability
                 if (excalidrawApiRef.current) {
                     excalidrawApiRef.current.updateScene({ elements: full });
-                    // Zoom to fit elements with a small delay to ensure rendering is complete
-                    setTimeout(() => {
-                        if (excalidrawApiRef.current) {
-                            excalidrawApiRef.current.scrollToContent(full, { fitToViewport: true, padding: 40 });
-                        }
-                    }, 50);
+                }
+                // Update state only occasionally to avoid React lag
+                if (full.length % 5 === 0) {
+                    setExcalidrawElements(full);
                 }
             } catch (e) {
                 console.error("[Pictionary UI] convertToExcalidrawElements failed:", e);
@@ -543,6 +542,10 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                         console.log(`[UI Stream] +${elapsed}ms - Stream complete`);
                         setIsStreaming(false);
                         ws.close();
+                        // Final scroll to fit everything
+                        if (excalidrawApiRef.current) {
+                            excalidrawApiRef.current.scrollToContent(undefined, { fitToViewport: true, padding: 40 });
+                        }
                     }
                 } catch (e) {
                     console.error("[Pictionary UI] Error in draw stream message:", e);
@@ -652,12 +655,10 @@ function PictionaryApp({ app, toolInputs, toolInputsPartial, toolResult, hostCon
                                         viewModeEnabled: true,
                                         zenModeEnabled: true,
                                         gridModeEnabled: false,
-                                    },
-                                    scrollToContent: true,
+                                    }
                                 }}
                                 viewModeEnabled={true}
                                 zenModeEnabled={true}
-                                gridModeEnabled={false}
                                 theme="light"
                                 UIOptions={{
                                     canvasActions: {
